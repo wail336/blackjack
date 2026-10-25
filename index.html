@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Blackjack Pro</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#0b3d2a;color:#fff;font-family:system-ui,sans-serif;padding:8px 8px 20px;max-width:520px;margin:auto}
+h1{font-size:18px;margin:4px 0 8px;text-align:center;letter-spacing:1px}
+.sec{background:#0f5237;border-radius:10px;padding:8px;margin-bottom:8px}
+.lbl{font-size:12px;opacity:.8;margin-bottom:4px}.hint{opacity:.5;font-size:13px}
+.cards{display:flex;gap:4px;flex-wrap:wrap;direction:ltr;min-height:50px;align-items:center}
+.pc{background:#fff;color:#111;border-radius:6px;padding:3px 7px;font-size:20px;min-width:42px;text-align:center;line-height:1.2}
+.pc.red,.k.red{color:#c00}.pc b{display:block;font-size:20px}
+#hands{display:flex;flex-direction:column;gap:6px}
+.hand{border:2px solid transparent;border-radius:8px;padding:4px}.hand.act{border-color:#ffd54a}
+#pk{display:grid;grid-template-columns:repeat(13,1fr);gap:2px;direction:ltr}
+.k{background:#fff;color:#111;border:0;border-radius:4px;height:40px;padding:0;font-size:11px;line-height:1.1;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.k b{font-size:13px}.k:active{background:#ffd54a}.k:disabled{opacity:.35}
+.dec{font-size:40px;font-weight:800;text-align:center;border-radius:10px;padding:10px 4px;direction:ltr}
+.STAND{background:#b3261e}.HIT{background:#2e7d32}.DOUBLE{background:#c79100}.SPLIT{background:#1565c0}.NONE{background:#455a64;font-size:26px}
+.sub{text-align:center;font-size:14px;margin-top:6px;min-height:18px}
+.row{display:flex;gap:8px;margin-bottom:6px}.row button.rec{outline:3px solid #ffd54a}.row button.on{background:#ffd54a}.row button:disabled{opacity:.3}.row button,.btn{flex:1;padding:12px;border:0;border-radius:8px;background:#e0e0e0;font-size:15px;font-weight:700}
+#ban{background:#7a5b00;border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px;display:none}
+#set{display:none;position:fixed;inset:0;background:#0b3d2a;overflow:auto;padding:12px;z-index:9}
+#set pre{direction:ltr;text-align:left;font-size:12px;white-space:pre-wrap;background:#0006;padding:8px;border-radius:8px}
+.t{font-size:12px;padding:3px 0;border-bottom:1px solid #fff2}.ok{color:#8f8}.bad{color:#f88;font-weight:700}
+#burnBtn{background:#455a64;color:#fff;border:0;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;font-weight:bold}
+#burnBtn.on{background:#d84315;outline:2px solid #ffab91;color:#fff}
+</style><script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head><body>
+<h1>♠ Blackjack Pro ♥</h1>
+<div id="ban"></div>
+<div class="sec"><div class="lbl">ورقة الموزّع</div><div class="cards" id="dealer"></div></div>
+<div class="sec"><div class="lbl">يدك</div><div id="hands"></div></div>
+<div class="sec"><div id="dec" class="dec NONE"></div><div class="sub" id="sub"></div><div class="sub" id="model" style="font-size:12px;opacity:.8"></div><div class="sub" id="edge" style="font-size:12px"></div></div>
+<div class="row" id="acts"></div><div class="sub" id="pend" style="transition: color 0.2s"></div>
+<div class="sec">
+ <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
+  <div class="lbl" style="margin:0">لوحة الأوراق</div>
+  <button id="burnBtn">🔥 حرق أوراق: OFF</button>
+ </div>
+ <div id="pk"></div>
+</div>
+<div class="row"><button id="undo">UNDO</button><button id="newr">NEW ROUND</button><button id="shuf">SHUFFLE</button><button id="sbtn">⚙ Settings</button></div>
+<div id="set"><button class="btn" id="sclose" style="width:100%;margin-bottom:8px">إغلاق</button>
+<label style="display:block;margin:8px 0"><input type="checkbox" id="exact"> التتبع الدقيق: حذاء 8 مجموعات بعد إزالة الأوراق المُدخلة (يُلغى = حذاء لانهائي أسرع وأقل دقة)</label><h3>قواعد الطاولة (RULES)</h3><pre id="rules"></pre>
+<button class="btn" id="runt" style="width:100%">تشغيل الاختبارات</button><button class="btn" id="runfull" style="width:100%;margin-top:6px">اختبار شامل بالمحرك الدقيق (بطيء: دقائق على الهاتف)</button><div id="tres"></div></div>
+
+<script id="engine">
+/* ===== RULES: المكان الوحيد لقواعد الطاولة. المحرك مبرمج لهذه القيم؛ تغيير doubleAfterSplit/resplit/surrender يحتاج تعديل الكود. ===== */
+const RULES={decks:8,blackjackPays:'3:2',dealerStandsSoft17:true,peekOnAce:true,peekOnTen:false /*ENHC*/,
+ doubleAfterSplit:false,resplit:false,doubleOn:'أول ورقتين فقط (ليست 21)، لا بعد التقسيم',
+ splitAces:'ورقة واحدة لكل يد، 21 بعدها عادية',surrender:false,insurance:'غير موصى به',buyTo18:'متجاهل',
+ model:'EV دقيق بتقريب الشوط اللانهائي (احتمالات الرتب ثابتة)، حسب مجموع اليد'};
+const RANKS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'],SUITS=['♠','♥','♦','♣'];
+const val=r=>r==='A'?1:('JQK'.includes(r)?10:+r);
+const P=[0,1/13,1/13,1/13,1/13,1/13,1/13,1/13,1/13,1/13,4/13];
+const K=(r,s)=>({r:String(r),s:s||'♠'});
+function info(cards){let t=0,a=false;for(const c of cards){const v=val(c.r);t+=v;if(v===1)a=true}
+ const soft=a&&t+10<=21;return{hard:t,soft,v:soft?t+10:t,bust:t>21,n:cards.length}}
+const isNatural=(cards,fromSplit)=>!fromSplit&&cards.length===2&&info(cards).v===21;
+/* ---- الموزّع: dealerGo = [17..21,Bust]؛ dealerDist = {c: توزيع شرطي بلا BJ, b: احتمال BJ المخفي (ENHC)} ---- */
+const _g={};
+function dealerGo(t,a){const soft=a&&t+10<=21,v=soft?t+10:t,z=[0,0,0,0,0,0];
+ if(t>21){z[5]=1;return z}
+ if(v>17||(v===17&&(!soft||RULES.dealerStandsSoft17))){z[v-17]=1;return z}
+ const k=t*2+(a?1:0);if(_g[k])return _g[k];
+ for(let c=1;c<=10;c++){const d=dealerGo(t+c,a||c===1);for(let i=0;i<6;i++)z[i]+=P[c]*d[i]}
+ return _g[k]=z}
+const _dd={};
+function dealerDist(up){if(_dd[up])return _dd[up];const z=[0,0,0,0,0,0];let wn=0,pb=0,all=0;
+ for(let c=1;c<=10;c++){const bj=(up===1&&c===10)||(up===10&&c===1);
+  if(bj&&((up===1&&RULES.peekOnAce)||(up===10&&RULES.peekOnTen)))continue; // فحص: الجولة تستمر فقط بلا BJ
+  all+=P[c];if(bj){pb+=P[c];continue}
+  wn+=P[c];const d=dealerGo(up+c,up===1||c===1);for(let i=0;i<6;i++)z[i]+=P[c]*d[i]}
+ return _dd[up]={c:z.map(x=>x/wn),b:pb/all}}
+const pBJ=up=>up===1?4/13:up===10?1/13:0;           // احتمال BJ الموزّع قبل أي فحص
+const naturalEV=(up,pb)=>1.5*(1-(pb===undefined?pBJ(up):pb));                 // Natural اللاعب: 3:2، وPush إن كان للموزّع BJ
+/* EV الكلي = (1-b)*EV_شرطي - b*W ؛ W = الرهان الأصلي + الإضافي (Double/Split) يخسر كله مرة واحدة أمام BJ المخفي */
+const stC=(v,c)=>{let e=c[5];for(let i=0;i<5;i++){const dv=17+i;e+=v>dv?c[i]:(v<dv?-c[i]:0)}return e};
+function cont(t,a,c,m){const k=t*2+(a?1:0);if(k in m)return m[k];const v=(a&&t+10<=21)?t+10:t;let b=stC(v,c);
+ if(v<21)b=Math.max(b,hitEV(t,a,c,m));return m[k]=b}
+function hitEV(t,a,c,m){let h=0;for(let x=1;x<=10;x++){const nt=t+x;h+=P[x]*(nt>21?-1:cont(nt,a||x===1,c,m))}return h}
+const _m={};
+function infEV(cards,upCard,o){o=o||{};const up=val(upCard.r),i=info(cards),d=dealerDist(up),c=d.c,m=_m[up]||(_m[up]={});
+ const two=cards.length===2,hasA=cards.some(x=>val(x.r)===1),ev={},parts={};
+ const put=(a,cond,W)=>{parts[a]={cond,W,b:d.b};ev[a]=(1-d.b)*cond-d.b*W};
+ put('STAND',stC(i.v,c),1);if(i.v<21)put('HIT',hitEV(i.hard,hasA,c,m),1);
+ if(two&&!o.fromSplit&&i.v!==21){let e=0;for(let x=1;x<=10;x++){const nt=i.hard+x,na=hasA||x===1,v=(na&&nt+10<=21)?nt+10:nt;e+=P[x]*(nt>21?-1:stC(v,c))}put('DOUBLE',2*e,2)}
+ if(two&&!o.fromSplit&&!o.split&&val(cards[0].r)===val(cards[1].r)){const p=val(cards[0].r);let e=0;
+  for(let x=1;x<=10;x++){if(p===1){const t=1+x,v=t+10<=21?t+10:t;e+=P[x]*stC(v,c)}else e+=P[x]*cont(p+x,x===1,c,m)}
+  put('SPLIT',2*e,2)}
+ return{ev,parts}}
+/* ---- حالة الجولة ---- */
+const nh=(c,f)=>({cards:c,doubled:false,stood:false,fromSplit:!!f,aces:false});
+const fresh=()=>({dealer:null,dealerExtra:[],hands:[nh([])],active:0,split:false,pending:'HIT'});
+let S=fresh(),hist=[],after=()=>{},discardedCards=[];   // discardedCards = مقبرة الأوراق (تتبع تراكمي للحذاء)
+let burnMode=false; // وضع حرق الأوراق
+const cstr=cs=>cs.map(c=>c.r+c.s).join(','),cparse=t=>t?t.split(',').map(x=>({r:x.slice(0,-1),s:x.slice(-1)})):[];
+const snap=()=>{hist.push(JSON.stringify({S,D:cstr(discardedCards)}));if(hist.length>60)hist.shift()};
+function isDone(h){const i=info(h.cards);if(h.cards.length<2)return false;
+ return i.bust||i.v===21||h.stood||(h.doubled&&h.cards.length>=3)||(h.aces&&h.cards.length>=2)}
+const roundOver=()=>!!S.dealer&&S.hands.every(isDone);
+/* دور الموزّع: بعد انتهاء أيدي اللاعب تُسجَّل أوراقه (المخفية والسحب) في S.dealerExtra حتى يكتمل (S17: ≥17 أو Bust) */
+const dealerHand=()=>S.dealer?[S.dealer].concat(S.dealerExtra||[]):[];
+const dealerDone=()=>{if(!(S.dealerExtra||[]).length)return false;const i=info(dealerHand());return i.bust||i.v>17||(i.v===17&&(!i.soft||RULES.dealerStandsSoft17))};
+const firstOpen=()=>{let i=S.hands.findIndex(h=>h.cards.length<2);if(i>=0)return i;i=S.hands.findIndex(h=>!isDone(h));return i<0?S.hands.length-1:i};
+/* الإجراءات القانونية لليد النشطة حسب RULES (بصرف النظر عن التوصية) */
+function legal(h){const L=[];if(!S.dealer||S.hands.some(x=>x.cards.length<2)||isDone(h))return L;const i=info(h.cards),two=h.cards.length===2&&!h.fromSplit;
+ L.push('STAND');if(i.v<21)L.push('HIT');if(two&&i.v!==21)L.push('DOUBLE');
+ if(two&&!S.split&&val(h.cards[0].r)===val(h.cards[1].r))L.push('SPLIT');return L}
+function decide(){const h=S.hands[S.active];
+ if(h.cards.length<2)return{msg:S.split?'أدخل الورقة الثانية لليد '+(S.active+1):'أدخل ورقتي اللاعب'};
+ if(!S.dealer)return{msg:'أدخل ورقة الموزّع المكشوفة أولًا.'};
+ const i=info(h.cards),up=val(S.dealer.r);
+ if(isNatural(h.cards,h.fromSplit)){const pb=bjProb(known(),up,CFG.exact),e=naturalEV(up,pb).toFixed(3);
+  return{action:'ROUND OVER',sub:up===1?'Blackjack طبيعي. قبل فحص الموزّع: EV='+e+' (أعلى من Even Money=1.000 ⇒ لا تقبله). بعد الفحص: 3:2 إن لم يكن للموزّع BJ، وإلا Push.':up===10?'Blackjack طبيعي. لا فحص مبكر (ENHC): EV='+e+'؛ يدفع 3:2، وإن ظهر للموزّع BJ في النهاية ⇒ Push.':'Blackjack طبيعي: يدفع 3:2.'}}
+ if(i.bust)return{action:'ROUND OVER',sub:'Bust — تجاوزت 21'};
+ if(isDone(h))return{action:'ROUND OVER',sub:i.v===21?'21':'اليد مغلقة'};
+ const e=strategy(h.cards,S.dealer,{fromSplit:h.fromSplit,split:S.split,known:known()}),tb=tableAction(h.cards,S.dealer,{fromSplit:h.fromSplit,split:S.split});
+ const r={action:tb.act,ev:e.ev,model:e.model,approx:e.approx,table:tb,eng:null};
+ if(e.action!==tb.act)r.eng={action:e.action,diff:e.ev[e.action]-e.ev[tb.act]};
+ r.sub=up===1?'لا Insurance / Even Money':'';
+ r.note='مرجع القرار: جدول الاستراتيجية الأساسية ('+tb.row+') · التحقق: '+(e.model==='exact'?'حذاء 8 مجموعات بعد إزالة الأوراق المُدخلة'+(e.approx&&tb.act==='SPLIT'?' (EV لـSplit غير الآسات تقريبي)':''):'حذاء لانهائي (تقريب)')+' · '+(up===1?'بعد فحص الموزّع':up===10?'ENHC':'')+(r.eng?' · ⚠ المحرك يرى '+r.eng.action+' (فرق EV '+r.eng.diff.toFixed(3)+(r.eng.diff<0.005?'، حدّي':'، يستحق المراجعة')+') — يبقى قرار الجدول':' · المحرك يوافق');
+ return r}
+/* تسجيل الإجراء صراحةً: STAND يغلق اليد، SPLIT ينشئ يدين، HIT/DOUBLE يحدّدان الإجراء الذي ستُسجَّل به الورقة التالية */
+function act(a){const h=S.hands[S.active];if(!legal(h).includes(a))return false;snap();
+ if(a==='STAND'){h.stood=true;S.pending='HIT'}
+ else if(a==='SPLIT'){const[c1,c2]=h.cards,ac=c1.r==='A';
+  S.hands=[nh([c1],true),nh([c2],true)];S.hands.forEach(x=>x.aces=ac);S.split=true;S.pending='HIT'}
+ else S.pending=a;
+ S.active=firstOpen();after();return true}
+function add(card){if(!validCard(card)||!canAdd(card))return false;
+ if(roundOver()){if(dealerDone())return false;snap();S.dealerExtra=(S.dealerExtra||[]).concat([card]);after();return true}
+ snap();
+ if(S.hands[0].cards.length<2&&!S.split)S.hands[0].cards.push(card);
+ else if(!S.dealer)S.dealer=card;
+ else{const h=S.hands[S.active];if(h.cards.length>=2&&S.pending==='DOUBLE'&&legal(h).includes('DOUBLE'))h.doubled=true;h.cards.push(card)}
+ S.pending='HIT';S.active=firstOpen();after()}
+function burnCard(card){if(!validCard(card)||!canAdd(card))return false;
+ snap();discardedCards.push(card);after();return true} // إرسال الورقة للمقبرة مباشرة
+function undo(){while(hist.length){try{const o=JSON.parse(hist.pop()),x=o&&o.S?o.S:o;if(validState(x)){const d=o&&o.S&&typeof o.D==='string'?cparse(o.D):null;if(d&&!d.every(validCard))continue;S=x;S.dealerExtra=S.dealerExtra||[];if(d)discardedCards=d;after();return true}}catch(e){}}return false}
+const tableCards=()=>S.hands.flatMap(h=>h.cards).concat(S.dealer?[S.dealer]:[],S.dealerExtra||[]);
+function newRound(){snap();discardedCards=discardedCards.concat(tableCards());S=fresh();burnMode=false;after()}   // الأوراق المكشوفة تنتقل إلى المقبرة
+function shuffleShoe(){snap();discardedCards=[];S=fresh();burnMode=false;after()}                                    // حذاء جديد: مسح المقبرة
+/* ===== نموذجان للحساب (يُعرضان في الواجهة) =====
+   inf  : حذاء لانهائي، القرار حسب مجموع اليد (تقريب معروف لـ8 مجموعات).
+   exact: حذاء 8 مجموعات فعلي = الحذاء الكامل ناقص الأوراق المُدخلة فقط (الباقي يُعامل كمجهول، لا عدّ). عدّ كامل لكل
+          مسارات اللاعب والموزّع. التقريب الوحيد: Split لغير الآسات = يدان مستقلتان على الحذاء بعد إزالة الأوراق المعروفة؛
+          Split الآسات حساب دقيق متسلسل.
+   نقطة البداية: مقابل A = بعد فحص الموزّع (لا BJ، وإلا انتهت الجولة)؛ مقابل 10/J/Q/K (ENHC) = قبل كشف الورقة المخفية. */
+const CFG={exact:true},KEY='bjpro.v4';
+const persist=st=>st.setItem(KEY,JSON.stringify({S,H:hist,C:CFG,D:cstr(discardedCards)}));
+const validCard=c=>!!c&&RANKS.includes(c.r)&&SUITS.includes(c.s);
+const validState=x=>!!x&&Array.isArray(x.hands)&&x.hands.length>=1&&x.hands.length<=2&&x.hands.every(h=>h&&Array.isArray(h.cards)&&h.cards.every(validCard))&&(x.dealer===null||validCard(x.dealer))&&(x.dealerExtra===undefined||(Array.isArray(x.dealerExtra)&&x.dealerExtra.every(validCard)))&&Number.isInteger(x.active)&&x.active>=0&&x.active<x.hands.length;
+function restore(st){try{const j=JSON.parse(st.getItem(KEY)||'null');if(!j||!validState(j.S))return false;
+ const d=typeof j.D==='string'?cparse(j.D):[];if(!d.every(validCard)||d.some(c=>d.filter(x=>x.r===c.r&&x.s===c.s).length>RULES.decks))return false;
+ S=j.S;S.dealerExtra=S.dealerExtra||[];discardedCards=d;S.pending=S.pending==='DOUBLE'?'DOUBLE':'HIT';hist=Array.isArray(j.H)?j.H.filter(x=>typeof x==='string'):[];if(j.C)CFG.exact=!!j.C.exact;return true}catch(e){return false}}
+function known(){const k=discardedCards.slice();S.hands.forEach(h=>k.push(...h.cards));if(S.dealer)k.push(S.dealer);(S.dealerExtra||[]).forEach(c=>k.push(c));return k}   // المقبرة + أوراق الطاولة
+const canAdd=c=>{if(!CFG.exact)return true;const k=known();return k.filter(x=>x.r===c.r&&x.s===c.s).length<RULES.decks&&k.filter(x=>x.r===c.r).length<RULES.decks*4};
+function bjProb(kn,up,exact){if(up!==1&&up!==10)return 0;if(!exact)return pBJ(up);const sh=[0,32,32,32,32,32,32,32,32,32,128];kn.forEach(c=>sh[val(c.r)]--);return sh[up===1?10:1]/sh.reduce((a,b)=>a+b)}
+/* تسوية رهان (صافي وحدات). p={W,v,bust,natural}; dl={bj,v,bust}. ENHC: BJ الموزّع يربح كل الرهانات المعرّضة (W يشمل Double) */
+function payout(p,dl){const W=p.W||1;if(p.bust)return-W;if(dl.bj)return p.natural?0:-W;if(p.natural)return 1.5;if(dl.bust)return W;return p.v>dl.v?W:p.v<dl.v?-W:0}
+function exactEV(cards,upCard,o){const D=(o.decks||RULES.decks)*4,sh=[0,D,D,D,D,D,D,D,D,D,D*4],up=val(upCard.r);
+ (o.known||cards.concat([upCard])).forEach(c=>sh[val(c.r)]--);
+ const N0=sh.reduce((a,b)=>a+b),dm=new Map(),bm=new Map(),v2=(s,a)=>a&&s+10<=21?s+10:s;
+ const dp=(s,a,N)=>{const b=v2(s,a);if(s>21)return[0,0,0,0,0,1];const sf=a&&s+10<=21;if(b>17||(b===17&&(!sf||RULES.dealerStandsSoft17))){const z=[0,0,0,0,0,0];z[b-17]=1;return z}
+  const k=s+(a?'a':'h')+sh.join();if(dm.has(k))return dm.get(k);const z=[0,0,0,0,0,0];
+  for(let c=1;c<=10;c++){if(sh[c]<=0)continue;const p=sh[c]/N;sh[c]--;const d=dp(s+c,a||c===1,N-1);sh[c]++;for(let i=0;i<6;i++)z[i]+=p*d[i]}
+  dm.set(k,z);return z};
+ const ck=up===1&&RULES.peekOnAce?10:up===10&&RULES.peekOnTen?1:0,P0=ck?(N0-sh[ck])/N0:1,
+  settle=(pv,N)=>{const f=ck?((N-sh[ck])/N)/P0:1;/* بعد الفحص: وزن P(لا BJ | أوراق اللاعب)/P(لا BJ) */if(pv>21)return-f;const z=[0,0,0,0,0,0];let wn=0,pb=0,all=0;
+  for(let h=1;h<=10;h++){if(sh[h]<=0)continue;const p=sh[h]/N,bj=(up===1&&h===10)||(up===10&&h===1);
+   if(bj&&((up===1&&RULES.peekOnAce)||(up===10&&RULES.peekOnTen)))continue;all+=p;if(bj){pb+=p;continue}wn+=p;sh[h]--;const d=dp(up+h,up===1||h===1,N-1);sh[h]++;for(let i=0;i<6;i++)z[i]+=p*d[i]}
+  let e=0;for(let i=0;i<6;i++){const q=z[i]/wn;e+=i===5?q:(pv>17+i?q:pv<17+i?-q:0)}const b=pb/all;return f*((1-b)*e-b)};
+ const hit=(s,a,N)=>{let e=0;for(let c=1;c<=10;c++){if(sh[c]<=0)continue;const p=sh[c]/N;sh[c]--;e+=p*best(s+c,a||c===1,N-1);sh[c]++}return e};
+ const best=(s,a,N)=>{const pv=v2(s,a);if(pv>21)return settle(pv,N);const k=s+(a?'a':'h')+sh.join();if(bm.has(k))return bm.get(k);
+  let r=settle(pv,N);if(pv<21)r=Math.max(r,hit(s,a,N));bm.set(k,r);return r};
+ const s0=cards.reduce((x,c)=>x+val(c.r),0),a0=cards.some(c=>val(c.r)===1),pv0=v2(s0,a0),two=cards.length===2,out={STAND:settle(pv0,N0)};let approx=false;
+ if(pv0<21)out.HIT=hit(s0,a0,N0);
+ if(two&&!o.fromSplit&&pv0!==21){let e=0;for(let c=1;c<=10;c++){if(sh[c]<=0)continue;const p=sh[c]/N0;sh[c]--;e+=p*settle(s0+c>21?22:v2(s0+c,a0||c===1),N0-1);sh[c]++}out.DOUBLE=2*e}
+ if(two&&!o.fromSplit&&!o.split&&val(cards[0].r)===val(cards[1].r)){const r=val(cards[0].r);let e=0;
+  if(r===1){for(let c1=1;c1<=10;c1++){if(sh[c1]<=0)continue;const p1=sh[c1]/N0;sh[c1]--;
+    for(let c2=1;c2<=10;c2++){if(sh[c2]<=0)continue;const p2=sh[c2]/(N0-1);sh[c2]--;e+=p1*p2*(settle(v2(1+c1,true),N0-2)+settle(v2(1+c2,true),N0-2));sh[c2]++}sh[c1]++}}
+  else{approx=true;for(let c=1;c<=10;c++){if(sh[c]<=0)continue;const p=sh[c]/N0;sh[c]--;e+=p*best(r+c,c===1,N0-1);sh[c]++}e*=2}
+  out.SPLIT=e}
+ const parts={};for(const a in out)parts[a]={W:a==='DOUBLE'||a==='SPLIT'?2:1};return{ev:out,parts,approx}}
+const _sc=new Map();
+function resetCaches(){for(const o of[_g,_dd,_m])for(const k in o)delete o[k];_sc.clear()}
+function strategy(cards,upCard,o){o=o||{};const ex=o.exact===undefined?CFG.exact:o.exact;
+ const key=JSON.stringify([cards.map(c=>c.r),upCard.r,(o.known||[]).map(c=>c.r).sort(),!!o.fromSplit,!!o.split,ex,o.decks||0]);
+ if(_sc.has(key))return _sc.get(key);const r=ex?exactEV(cards,upCard,o):infEV(cards,upCard,o);
+ let b='STAND';for(const a of['STAND','HIT','DOUBLE','SPLIT'])if(a in r.ev&&r.ev[a]>r.ev[b]+1e-9)b=a;
+ const rest=Object.keys(r.ev).filter(a=>a!==b).map(a=>r.ev[a]).sort((x,y)=>y-x);
+ const res={action:b,ev:r.ev,parts:r.parts,model:ex?'exact':'inf',approx:!!r.approx,gap:rest.length?r.ev[b]-rest[0]:Infinity};
+ if(_sc.size>400)_sc.clear();_sc.set(key,res);return res}
+/* ===== جدول الاستراتيجية الأساسية = المرجع الأول للقرار =====
+   الأعمدة: ورقة الموزّع 2،3،4،5،6،7،8،9،10(=10/J/Q/K)،A. الرموز: H سحب، S توقف، P تقسيم،
+   D مضاعفة وإلا سحب، E مضاعفة وإلا توقف. بُني يدويًا من استراتيجية 8 مجموعات/S17 المعروفة وعُدّل لقواعد الطاولة
+   (No DAS، لا Resplit، لا Surrender، ENHC على 10، فحص A)، ثم فُحص خلية بخلية بمحرك EV (انظر الاختبارات).
+   لا يوجد جدول منشور مطابق لهذه القواعد تمامًا (فحص عند A فقط + ENHC عند 10)؛ لذلك هو جدول مُشتق وليس منقولًا. */
+const RULE_CELLS=[[['5','6'],'10','H','ENHC: Double يخسر رهانين أمام BJ المخفي (الجدول المعتاد: D)'],[['8','8'],'10','H','ENHC: Split يخسر رهانين (المعتاد: P)'],
+ [['A','A'],'10','P','يبقى P رغم ENHC (ورقة واحدة لكل آس)'],[['A','A'],'A','P','فحص A: القرار بعد الفحص'],[['4','4'],'5','H','No DAS (المعتاد مع DAS: P)'],
+ [['2','2'],'2','H','No DAS'],[['3','3'],'3','H','No DAS'],[['6','6'],'2','H','No DAS'],[['A','7'],'2','S','S17 (مع H17: D)'],[['A','8'],'6','S','S17 (مع H17: D)'],
+ [['5','6'],'A','H','S17 (مع H17: D)'],[['9','9'],'10','S','لا Surrender']];
+const BASIC={
+ hard:{9:'HDDDDHHHHH',10:'DDDDDDDDHH',11:'DDDDDDDDHH',12:'HHSSSHHHHH',13:'SSSSSHHHHH',14:'SSSSSHHHHH',15:'SSSSSHHHHH',16:'SSSSSHHHHH'},
+ soft:{12:'HHHHHHHHHH',13:'HHHDDHHHHH',14:'HHHDDHHHHH',15:'HHDDDHHHHH',16:'HHDDDHHHHH',17:'HDDDDHHHHH',18:'SEEEESSHHH'},
+ pair:{1:'PPPPPPPPPP',2:'HHPPPPHHHH',3:'HHPPPPHHHH',4:'HHHHHHHHHH',5:'DDDDDDDDHH',6:'HPPPPHHHHH',7:'PPPPPPHHHH',8:'PPPPPPPPHP',9:'PPPPPSPPSS',10:'SSSSSSSSSS'}};
+function tableAction(cards,upCard,o){o=o||{};const up=val(upCard.r),ci=up===1?9:up===10?8:up-2,i=info(cards),two=cards.length===2;
+ const canD=two&&!o.fromSplit&&i.v<21,canP=two&&!o.fromSplit&&!o.split&&val(cards[0].r)===val(cards[1].r);let raw,row;
+ if(canP){const p=val(cards[0].r);row='pair '+p;raw=BASIC.pair[p][ci]}
+ else if(i.soft){row='soft '+i.v;raw=i.v>=19?'S':BASIC.soft[i.v][ci]}
+ else{row='hard '+i.hard;raw=i.hard>=17?'S':i.hard<=8?'H':BASIC.hard[i.hard][ci]}
+ const act=raw==='P'?'SPLIT':raw==='D'?(canD?'DOUBLE':'HIT'):raw==='E'?(canD?'DOUBLE':'STAND'):raw==='S'?'STAND':'HIT';return{act,raw,row}}
+/* مرجع مستقل بترتيب تعداد معكوس (الورقة المخفية أولًا ثم ورقة اللاعب ثم سحب الموزّع)، مقابل A بعد فحص الموزّع، Double فقط */
+function refDoubleVsA(cards){const D=32,sh=[0,D,D,D,D,D,D,D,D,D,D*4],v=r=>r==='A'?1:'JQK'.includes(r)?10:+r,x2=(s,a)=>a&&s+10<=21?s+10:s;
+ cards.forEach(c=>sh[v(c.r)]--);sh[1]--;const N=sh.reduce((a,b)=>a+b),s0=cards.reduce((a,c)=>a+v(c.r),0),a0=cards.some(c=>v(c.r)===1),memo=new Map();
+ const fin=(s,a,n)=>{if(s>21)return{22:1};const b=x2(s,a);if(b>=17)return{[b]:1};const k=s+(a?'a':'h')+sh.join();if(memo.has(k))return memo.get(k);
+  const out={};for(let c=1;c<=10;c++){if(sh[c]<=0)continue;const p=sh[c]/n;sh[c]--;const d=fin(s+c,a||c===1,n-1);sh[c]++;for(const f in d)out[f]=(out[f]||0)+p*d[f]}memo.set(k,out);return out};
+ let tot=0,w=0;
+ for(let h=1;h<=9;h++){const p=sh[h]/N;sh[h]--;w+=p;
+  for(let c=1;c<=10;c++){const q=sh[c]/(N-1);sh[c]--;const pv=x2(s0+c,a0||c===1);let pay;
+   if(s0+c>21)pay=-2;else{const d=fin(1+h,true,N-2);pay=0;for(const f in d)pay+=d[f]*(f>21?2:(pv>f?2:pv<f?-2:0))}
+   tot+=p*q*pay;sh[c]++}sh[h]++}
+ return tot/w}
+/* ===== مرجع مستقل (Bayes صريح لكل عقدة): تعداد حذاء حقيقي، الورقة المخفية تُعدّ صراحةً عند التوقف، لا يستخدم exactEV/infEV =====
+   الفحص عند A: P(c|X,لا BJ)=P(c|X)·w(X+c)/w(X)، w = احتمال أن الورقة المخفية ليست 10. ENHC عند 10: BJ المخفي يخسر كل الرهانات.
+   o.decks: عدد المجموعات (كبير جدًا ≈ لانهائي)، o.pol: سياسة ثابتة (s,a)->hit ؟ بدل الأمثل، o.split: Split غير الآسات بإدخال مشترك دقيق. */
+function refBayes(cards,upR,o){o=o||{};const D=(o.decks||8)*4,sh=[0,D,D,D,D,D,D,D,D,D,D*4],v=r=>r==='A'?1:'JQK'.includes(r)?10:+r,x2=(s,a)=>a&&s+10<=21?s+10:s,up=v(upR),ck=up===1?10:0;
+ cards.forEach(c=>sh[v(c.r)]--);sh[up]--;(o.extra||[]).forEach(c=>sh[v(c.r)]--);const N0=sh.reduce((a,b)=>a+b),fm=new Map(),nm=new Map(),m2=new Map();
+ const fin=(s,a,n)=>{if(s>21)return{22:1};const b=x2(s,a);if(b>=17)return{[b]:1};const k=s+(a?'a':'h')+sh.join();if(fm.has(k))return fm.get(k);
+  const out={};for(let c=1;c<=10;c++){if(sh[c]<=0)continue;const p=sh[c]/n;sh[c]--;const d=fin(s+c,a||c===1,n-1);sh[c]++;for(const f in d)out[f]=(out[f]||0)+p*d[f]}if(fm.size>150000)fm.clear();fm.set(k,out);return out};
+ const pay=(pv,f,W)=>pv>21?-W:(f>21?W:(pv>f?W:pv<f?-W:0));
+ const stand=(ps,N,W)=>{let num=0,den=0;for(let h=1;h<=10;h++){if(sh[h]<=0)continue;const p=sh[h]/N;if(up===1&&h===10)continue;den+=p;
+   if(up===10&&h===1){num-=p*W*ps.length;continue}
+   sh[h]--;const d=fin(up+h,up===1||h===1,N-1);sh[h]++;let e=0;for(const f in d)for(const pv of ps)e+=d[f]*pay(pv,+f,W);num+=p*e}return num/den};
+ const w=N=>ck?(N-sh[ck])/N:1;
+ const chance=(N,fn)=>{const w0=w(N);let e=0;for(let c=1;c<=10;c++){if(sh[c]<=0)continue;const p=sh[c]/N;sh[c]--;e+=p*w(N-1)/w0*fn(c,N-1);sh[c]++}return e};
+ const best=(s,a,N)=>{const k='b'+s+(a?'a':'h')+sh.join();if(nm.has(k))return nm.get(k);const pv=x2(s,a);let r;
+  if(pv>21)r=-1;else{const st=stand([pv],N,1);if(pv<21){const h=chance(N,(c,n)=>best(s+c,a||c===1,n));r=o.pol?(o.pol(s,a)?h:st):Math.max(st,h)}else r=st}nm.set(k,r);return r};
+ const s0=cards.reduce((a,c)=>a+v(c.r),0),a0=cards.some(c=>v(c.r)===1),pv0=x2(s0,a0),out={STAND:stand([pv0],N0,1)};
+ if(pv0<21){out.HIT=chance(N0,(c,n)=>best(s0+c,a0||c===1,n))}
+ if(cards.length===2&&pv0!==21)out.DOUBLE=2*0+chance(N0,(c,n)=>s0+c>21?-2:stand([x2(s0+c,a0||c===1)],n,2));
+ return out}
+/* ===== أفضلية اللاعب: EV جولة كاملة بتركيبة الحذاء الحالية =====
+   تقدير تقريبي: احتمالات الرتب = المتبقي/الإجمالي وتبقى ثابتة داخل الجولة (لا نضوب داخلها)، نموذج لانهائي، اللاعب يتبع جدول الاستراتيجية.
+   Natural: 3:2 (Push عند BJ الموزّع: A بعد الفحص، 10 بدون فحص ENHC). لا يعتمد على True Count. */
+const FULLSHOE=()=>{const D=RULES.decks*4;return[0,D,D,D,D,D,D,D,D,D,D*4]};
+function remainingShoe(){const sh=FULLSHOE();known().forEach(c=>{sh[val(c.r)]--});return sh.map(x=>Math.max(0,x))}
+function playerEdge(sh){const N=sh.slice(1).reduce((a,b)=>a+b,0);if(N<=0)return NaN;const keep=P.slice();
+ try{for(let v=1;v<=10;v++)P[v]=sh[v]/N;resetCaches();const R=v=>v===1?'A':v===10?'K':String(v);let tot=0;
+  for(let u=1;u<=10;u++){if(!P[u])continue;const up=K(R(u));
+   for(let a=1;a<=10;a++)for(let b=1;b<=10;b++){const p=P[u]*P[a]*P[b];if(!p)continue;const nat=(a===1&&b===10)||(a===10&&b===1);let e;
+    if(nat)e=u===1?1.5*(1-P[10]):u===10?1.5*(1-P[1]):1.5;
+    else{const c=[K(R(a)),K(R(b))],ev=strategy(c,up,{exact:false}).ev[tableAction(c,up).act];e=u===1?-P[10]+(1-P[10])*ev:ev}
+    tot+=p*e}}
+  return tot}finally{for(let v=0;v<=10;v++)P[v]=keep[v];resetCaches()}}
+/* ---- محاكاة مونت كارلو مستقلة: حذاء حقيقي مبعثر بأوراقه، سحب صريح للورقة المخفية، لا تستخدم EV المحرك (تستخدم payout فقط) ---- */
+function mcEV(cards,upR,mode,N,decks,seed,pol){const D=(decks||8)*4,cnt=[0,D,D,D,D,D,D,D,D,D,D*4],hv=x=>x==='A'?1:'JQK'.includes(x)?10:+x;
+ cards.forEach(c=>cnt[hv(c.r)]--);cnt[hv(upR)]--;const base=[];for(let v=1;v<=10;v++)for(let i=0;i<cnt[v];i++)base.push(v);
+ let st=seed>>>0;const rnd=()=>{st=(st+0x6D2B79F5)>>>0;let t=st;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296};
+ const m0=base.length;let m=m0;const draw=()=>{const j=(rnd()*m)|0,v=base[j];base[j]=base[m-1];base[m-1]=v;m--;return v};
+ const up=hv(upR),pv=a=>{const t=a.reduce((x,y)=>x+y,0);return a.includes(1)&&t+10<=21?t+10:t},pc=cards.map(c=>hv(c.r));let s=0,q=0;
+ for(let n=0;n<N;n++){m=m0;let hole=draw();while(up===1&&hole===10){m++;hole=draw()}   // فحص الآس: شرط عدم وجود BJ
+  const bj=(up===10&&hole===1)||(up===1&&hole===10);let hands,W=1;
+  if(mode==='STAND')hands=[pc.slice()];
+  else if(mode==='DOUBLE'){hands=[pc.concat(draw())];W=2}
+  else if(mode==='SPLITA')hands=[[1,draw()],[1,draw()]];
+  else if(mode==='SPLITP'||mode==='SPLITI'){hands=[];const m1=m;for(let k=0;k<2;k++){if(k===1&&mode==='SPLITI')m=m1;const h=[pc[0],draw()];while(pv(h)<17)h.push(draw());hands.push(h)}}
+  else if(mode==='HITPOL'){const h=pc.slice();h.push(draw());while(pv(h)<21&&pol(h))h.push(draw());hands=[h]}
+  else{const h=pc.slice();while(pv(h)<17)h.push(draw());hands=[h]}          // HITP: سياسة بسيطة ثابتة (ليست مثلى)
+  const dh=[up,hole];if(!bj)while(pv(dh)<17)dh.push(draw());const dl={bj,v:pv(dh),bust:pv(dh)>21};
+  let x=0;for(const h of hands){const v=pv(h);x+=payout({W,v,bust:v>21,natural:false},dl)}s+=x;q+=x*x}
+ const mean=s/N;return{m:mean,se:Math.sqrt(Math.max(q/N-mean*mean,0)/N)}}
+/* ---- الاختبارات ---- */
+function runTests(full){const R=[],keep=[S,hist,after],kc=CFG.exact,kd=discardedCards,kb=burnMode;discardedCards=[];after=()=>{};CFG.exact=false;burnMode=false;
+ const t=(g,n,f)=>{try{const r=f();R.push({g,n,ok:r===true,skip:typeof r==='string'&&r.startsWith('غير متاح'),d:r===true?'':String(r)})}catch(e){R.push({g,n,ok:false,d:e.message})}};
+ const seq=(...rs)=>{S=fresh();hist=[];discardedCards=[];rs.forEach(r=>add(K(r)))};
+ const eq=(a,b)=>a===b||('متوقع '+b+' فكان '+a),near=(a,b,e)=>Math.abs(a-b)<e||('متوقع '+b+' فكان '+a);
+ const U=u=>K(u===1?'A':u===10?'K':String(u)),ups=[2,3,4,5,6,7,8,9,10,1];
+ /* حساب */
+ t('حساب','Soft 17 ثم Hard 17',()=>{const a=info([K('A'),K(6)]),b=info([K('A'),K(6),K('10')]);return a.v===17&&a.soft&&b.v===17&&!b.soft||'x'});
+ t('حساب','Natural بورقتين فقط، و21 الأخرى عادية',()=>isNatural([K('A'),K('K')])&&!isNatural([K(7),K(7),K(7)])&&!isNatural([K('A'),K('K')],true)||'x');
+ t('حساب','Bust وقيم الصور',()=>info([K('K'),K(9),K(5)]).bust&&['10','J','Q','K'].every(r=>val(r)===10)||'x');
+ t('حساب','تكرار رتب (8 آسات=18)',()=>eq(info(Array(8).fill(K('A'))).v,18));
+ t('حساب','S17: الموزّع يقف على Soft 17',()=>eq(dealerGo(7,true)[0],1));
+ /* Natural وENHC: قيم مكتوبة يدويًا */
+ t('Natural','EV Natural مقابل A = 1.5×9/13 = 1.03846 (Push عند BJ الموزّع)',()=>near(naturalEV(1),1.0384615,1e-6));
+ t('Natural','EV Natural مقابل 10 = 1.5×12/13 = 1.38462',()=>near(naturalEV(10),1.3846154,1e-6));
+ t('Natural','EV Natural مقابل 6 = 1.5',()=>near(naturalEV(6),1.5,1e-12));
+ t('Natural','آس مكشوف: Natural يعطي Push/3:2 وليس Even Money',()=>{seq('A','K','A');const d=decide();return roundOver()&&d.sub.includes('Push')&&d.sub.includes('Even Money')||d.sub});
+ t('Natural','10 مكشوفة (ENHC): Push إن ظهر BJ لاحقًا',()=>{seq('A','K','K');return decide().sub.includes('Push')||decide().sub});
+ t('ENHC','احتمال BJ المخفي: A=0 (فحص)، 10=1/13، 6=0',()=>near(dealerDist(1).b,0,1e-15)===true&&near(dealerDist(10).b,0.0769231,1e-6)===true&&dealerDist(6).b===0||'x');
+ t('ENHC','توزيع الموزّع الشرطي مجموعه 1',()=>ups.every(u=>Math.abs(dealerDist(u).c.reduce((a,b)=>a+b)-1)<1e-12)||'x');
+ t('ENHC','المحاسبة: Double وSplit يخسران رهانين، HIT/STAND رهانًا، دون ازدواج',()=>{const s=strategy([K(5),K(5)],U(10)),p=s.parts;
+  if(p.DOUBLE.W!==2||p.STAND.W!==1||p.HIT.W!==1)return 'W خاطئ';
+  for(const a in p){const x=(1-p[a].b)*p[a].cond-p[a].b*p[a].W;if(Math.abs(x-s.ev[a])>1e-12)return a+' مختلف'}
+  const q=strategy([K(8),K(8)],U(10)).parts;return q.SPLIT.W===2||'Split W'});
+ /* حساب يدوي مستقل للحذاء (أرقام مكتوبة بيد، لا تمر بالمحرك) */
+ t('حذاء','BJ المخفي مقابل K و[A,5]: آسات 31 من 413 أوراق متبقية',()=>near(bjProb([K('A'),K(5),K('K')],10,true),31/413,1e-12));
+ t('حذاء','قبل الفحص مقابل A و[K,K]: عشرات 126 من 413',()=>near(bjProb([K('K'),K('K'),K('A')],1,true),126/413,1e-12));
+ t('حذاء','لانهائي: A→4/13، 10→1/13، 6→0',()=>bjProb([],1,false)===4/13&&bjProb([],10,false)===1/13&&bjProb([],6,false)===0||'x');
+ t('Natural','EV [A,K] مقابل A (قبل الفحص، 8 مجموعات) = 1.5×286/413',()=>near(naturalEV(1,bjProb([K('A'),K('K'),K('A')],1,true)),1.5*286/413,1e-12));
+ t('Natural','EV [A,K] مقابل K (ENHC، 8 مجموعات) = 1.5×382/413',()=>near(naturalEV(10,bjProb([K('A'),K('K'),K('K')],10,true)),1.5*382/413,1e-12));
+ t('Natural','رسالة A تذكر EV قبل الفحص وEven Money وPush',()=>{seq('A','K','A');const s=decide().sub;return /EV=1\.03/.test(s)&&s.includes('Even Money')&&s.includes('Push')||s});
+ /* تسوية الرهانات (ENHC وPush وBust) بقيم متوقعة مكتوبة يدويًا */
+ t('تسوية','BJ الموزّع: Double يخسر 2، كل يد Split تخسر 1، Natural يتعادل',()=>{const d={bj:true,v:21};return payout({W:2,v:20},d)===-2&&payout({W:1,v:20},d)===-1&&payout({W:1,v:21,natural:false},d)===-1&&payout({W:1,v:21,natural:true},d)===0||'x'});
+ t('تسوية','Natural 3:2، 21 بعد Split تدفع 1:1، Push=0، Bust=-W، Dealer Bust=+W',()=>{const d={bj:false,v:20,bust:false};return payout({W:1,natural:true,v:21},d)===1.5&&payout({W:1,natural:false,v:21},d)===1&&payout({W:1,v:20},d)===0&&payout({W:2,bust:true},d)===-2&&payout({W:2,v:12},{bj:false,bust:true,v:22})===2||'x'});
+ /* مونت كارلو مستقل مقابل المحرك */
+ const mcT=(n,cs,u,mode,key,exact,dk)=>t('مونت كارلو',n,()=>{const cards=cs.map(r=>K(r)),r=mcEV(cards,u,mode,150000,dk,12345),e=strategy(cards,K(u),{exact,decks:dk}).ev[key];
+  return Math.abs(r.m-e)<=4.5*r.se+0.002||'MC='+r.m.toFixed(4)+'±'+r.se.toFixed(4)+' محرك='+e.toFixed(4)});
+ mcT('STAND [10,6] vs K (ENHC) — حذاء 8',['10','6'],'K','STAND','STAND',true);
+ mcT('STAND [10,9] vs 6 — حذاء 8',['10','9'],'6','STAND','STAND',true);
+ mcT('STAND [A,7] vs A (بعد الفحص) — حذاء 8',['A','7'],'A','STAND','STAND',true);
+ mcT('DOUBLE [5,6] vs K (يخسر رهانين أمام BJ) — حذاء 8',['5','6'],'K','DOUBLE','DOUBLE',true);
+ mcT('DOUBLE [5,6] vs 6 — حذاء 8',['5','6'],'6','DOUBLE','DOUBLE',true);
+ mcT('SPLIT A,A vs K — حذاء 8',['A','A'],'K','SPLITA','SPLIT',true);
+ mcT('SPLIT A,A vs 6 — حذاء 8',['A','A'],'6','SPLITA','SPLIT',true);
+ mcT('SPLIT A,A vs A (بعد الفحص) — حذاء 8',['A','A'],'A','SPLITA','SPLIT',true);
+ mcT('STAND [10,6] vs K — النموذج اللانهائي (MC بـ1000 مجموعة)',['10','6'],'K','STAND','STAND',false,1000);
+ mcT('DOUBLE [5,6] vs K — النموذج اللانهائي',['5','6'],'K','DOUBLE','DOUBLE',false,1000);
+ mcT('SPLIT A,A vs K — النموذج اللانهائي',['A','A'],'K','SPLITA','SPLIT',false,1000);
+ for(const[cs,u] of[[['10','2'],'3'],[['5','6'],'K'],[['10','6'],'K'],[['A','6'],'9']])t('مونت كارلو','HIT المحرك ≥ سياسة ثابتة (حدّ أدنى): '+cs+' vs '+u,()=>{const cards=cs.map(r=>K(r)),r=mcEV(cards,u,'HITP',100000,8,777),e=strategy(cards,K(u),{exact:true}).ev.HIT;
+  return e>=r.m-4.5*r.se-0.002||'محرك='+e.toFixed(4)+' < سياسة '+r.m.toFixed(4)});
+ /* تقارب النموذجين: الحذاء الدقيق بـ1000 مجموعة = اللانهائي (خوارزميتان مختلفتان) */
+ t('تقارب','دقيق(1000 مجموعة) ≈ لانهائي: كل الخيارات',()=>{for(const[cs,u] of[[['10','6'],'K'],[['5','6'],'K'],[['8','8'],'K'],[['A','A'],'K'],[['9','9'],'7'],[['A','7'],'9']]){
+  const c=cs.map(r=>K(r)),a=strategy(c,K(u),{exact:true,decks:1000}).ev,b=strategy(c,K(u),{exact:false}).ev;
+  for(const k in b)if(!(k in a)||Math.abs(a[k]-b[k])>0.003)return cs+' vs '+u+' '+k+' '+(a[k]||0).toFixed(4)+' / '+b[k].toFixed(4)}return true});
+ /* خانات تختلف توصيتها بين النموذجين */
+ {const cells=[[['10','2'],'3'],[['10','2'],'4'],[['10','3'],'2'],[['10','6'],'K'],[['10','5'],'K'],[['10','6'],'A'],[['5','4'],'2'],[['5','4'],'7'],[['8','8'],'K'],[['9','9'],'7'],[['A','7'],'9'],[['A','7'],'3'],[['7','7'],'K'],[['6','6'],'2']],dif=[];let bad='';
+  for(const[cs,u] of cells){const c=cs.map(r=>K(r)),a=strategy(c,K(u),{exact:false}),b=strategy(c,K(u),{exact:true});if(a.action!==b.action){dif.push(cs+' vs '+u+': '+a.action+'→'+b.action+' (فرق '+b.gap.toFixed(4)+')');if(b.gap>=0.02)bad=cs+' vs '+u}}
+  R.push({g:'نماذج',n:'خانات تختلف فيها التوصية (14 خانة): '+(dif.length?dif.join(' ؛ '):'لا اختلاف'),ok:!bad,d:bad?'فرق كبير: '+bad:''})}
+ t('حذاء','الأوراق المُدخلة تُزال: تغيّر EV مع وجود 10 إضافية في اليد',()=>{const a=strategy([K(5),K(6)],K(6),{exact:true}).ev.DOUBLE,b=strategy([K(5),K(6)],K(6),{exact:true,known:[K(5),K(6),K(6),K('K'),K('K'),K('Q')]}).ev.DOUBLE;return Math.abs(a-b)>1e-4||'لم يتغير'});
+ t('حذاء','عدم تجاوز نسخ الحذاء في التتبع الدقيق (8 نسخ لكل ورقة، 32 لكل رتبة)',()=>{CFG.exact=true;S=fresh();S.hands[0].cards=Array(8).fill(K('A','♠'));const a=canAdd(K('A','♠')),b=canAdd(K('A','♥'));
+  add(K('A','♠'));const c=S.dealer===null;S.hands[0].cards=['♠','♥','♦','♣'].flatMap(s=>Array(8).fill(K('7',s)));const d=canAdd(K('7','♠'));CFG.exact=false;const e=canAdd(K('7','♠'));return !a&&b&&c&&!d&&e||[a,b,c,d,e].join()});
+ t('الحفظ','حفظ واستعادة (تخزين وهمي = محاكاة إغلاق الصفحة وفتحها)',()=>{const m={d:{},setItem(k,v){this.d[k]=v},getItem(k){return this.d[k]||null}};seq('8','8','6');act('SPLIT');add(K(3));CFG.exact=true;persist(m);
+  const a=JSON.stringify([S,hist,CFG.exact]);S=fresh();hist=[];CFG.exact=false;const ok=restore(m)&&JSON.stringify([S,hist,CFG.exact])===a;CFG.exact=false;return ok||'x'});
+ t('سير الجولة','بعد انتهاء اللاعب: الورقة تذهب للموزّع ولا تغيّر أيدي اللاعب',()=>{seq('10','7','6');act('STAND');const b=JSON.stringify(S.hands);add(K(2));return JSON.stringify(S.hands)===b&&S.dealerExtra.length===1||'x'});
+ t('أداء','زمن القرار الدقيق (بارد، يدان)',()=>{const t0=performance.now();strategy([K(10),K(6)],K('K'),{exact:true,known:[K(10),K(6),K('K'),K(2)]});const ms=performance.now()-t0;R.push({g:'أداء',n:'نموذج دقيق: '+ms.toFixed(1)+' ms لقرار بارد',ok:ms<2000,d:''});return true});
+ /* ===== جدول Basic Strategy (المرجع) مقابل محرك EV (للتحقق فقط) ===== */
+ const AM={H:'HIT',S:'STAND',P:'SPLIT',D:'DOUBLE'},cellsAll=[],R2=v=>v===1?'A':v===10?'K':String(v);
+ for(let p=1;p<=10;p++)cellsAll.push([[K(R2(p)),K(R2(p))],'زوج '+p]);for(let x=2;x<=9;x++)cellsAll.push([[K('A'),K(x)],'Soft A'+x]);
+ for(let h=5;h<=19;h++){const a=Math.max(2,h-10);cellsAll.push([[K(a),K(h-a)],'Hard '+h])}
+ const cmpAll=ex=>{const mm=[];let n=0;for(const[c,l] of cellsAll)for(const u of ups){n++;const tb=tableAction(c,U(u)),e=strategy(c,U(u),{exact:ex});
+   if(e.action!==tb.act)mm.push({l:l+' vs '+(u===1?'A':u),d:e.ev[e.action]-e.ev[tb.act],tb:tb.act,en:e.action})}return{n,mm}};
+ {const r=cmpAll(false),bad=r.mm.filter(x=>x.d>=0.01);R.push({g:'جدول',n:'جدول↔محرك لانهائي: '+r.n+' خلية (أزواج/Soft 13-20/Hard 5-19×10 أوراق)، اختلاف '+r.mm.length+(r.mm.length?' — '+r.mm.map(x=>x.l+' جدول '+x.tb+' محرك '+x.en+' فرق EV '+x.d.toFixed(4)).join(' ؛ '):''),ok:!bad.length,d:bad.length?'فرق ≥0.01':''})}
+ if(full){const r=cmpAll(true),bad=r.mm.filter(x=>x.d>=0.005);R.push({g:'جدول',n:'جدول↔محرك دقيق (8 مجموعات، يدان ابتدائيتان): '+r.n+' خلية، اختلاف '+r.mm.length+(r.mm.length?' — '+r.mm.map(x=>x.l+' '+x.tb+'/'+x.en+' '+x.d.toFixed(4)).join(' ؛ '):''),ok:!bad.length,d:bad.length?'فرق ≥0.005':''})}
+ else R.push({g:'جدول',n:'جدول↔محرك دقيق لكل الخلايا: لم يُنفَّذ في التشغيل السريع (استخدم «اختبار شامل»)',ok:false,skip:true,d:''});
+ for(const[cs,u,exp,why] of RULE_CELLS)t('جدول',cs+' vs '+u+' = '+exp+' ('+why+')',()=>{const c=cs.map(r=>K(r)),uc=K(u==='10'?'K':u),tb=tableAction(c,uc),en=strategy(c,uc,{exact:true});
+  return tb.act===AM[exp]&&en.action===tb.act||'جدول '+tb.act+' محرك دقيق '+en.action});
+ t('جدول','صفوف الأزواج غير-P تساوي صفّ Hard/Soft المقابل',()=>{for(let p=1;p<=10;p++)for(let c=0;c<10;c++){const raw=BASIC.pair[p][c];if(raw==='P')continue;const o=p===1?BASIC.soft[12][c]:(2*p>=17?'S':2*p<=8?'H':BASIC.hard[2*p][c]);if(o!==raw)return 'زوج '+p+' عمود '+c+': '+raw+' ≠ '+o}return true});
+ t('جدول','رموز الجدول مسموحة فقط (لا Surrender)',()=>{const all=Object.values(BASIC).flatMap(g=>Object.values(g)).join('');return /^[HSPDE]+$/.test(all)||'x'});
+ t('جدول','قانونية: D→H بثلاث أوراق/بعد Split، E→S، الزوج بعد Split يُعامل Hard',()=>{
+  const a=tableAction([K(2),K(3),K(5)],U(6)).act,b=tableAction([K(5),K(6)],U(6),{fromSplit:true}).act,c=tableAction([K('A'),K(2),K(5)],U(5)).act,d=tableAction([K(8),K(8)],U(6),{fromSplit:true,split:true}).act,e=tableAction([K('A'),K(7)],U(5)).act;
+  return a==='HIT'&&b==='HIT'&&c==='STAND'&&d==='STAND'&&e==='DOUBLE'||[a,b,c,d,e].join()});
+ t('جدول','decide() يعرض قرار الجدول ولا يستبدله بصمت',()=>{CFG.exact=true;seq('8','5','10');add(K(3));const d=decide();CFG.exact=false;
+  return d.action==='HIT'&&d.eng&&d.eng.action==='STAND'&&d.note.includes('المحرك يرى')&&d.note.includes('يبقى قرار الجدول')||JSON.stringify([d.action,d.eng])});
+ /* حالات يتغير فيها الأمثل بحسب تركيب الأوراق (الجدول يبقى المرجع، الاختلاف يُعرض تنبيهًا) */
+ {const cases=[[['10','6'],'10'],[['9','7'],'10'],[['8','5','3'],'10'],[['6','5','5'],'10'],[['4','4','4','4'],'10'],[['10','5'],'10'],[['7','5','3'],'10'],[['10','2'],'4'],[['5','4','3'],'4'],[['10','4'],'3'],[['4','4','3','3'],'3']],dif=[];let bad='';
+  for(const[cs,u] of cases){const c=cs.map(r=>K(r)),uc=U(+u),tb=tableAction(c,uc),e=strategy(c,uc,{exact:true});if(e.action!==tb.act){const d=e.ev[e.action]-e.ev[tb.act];dif.push('['+cs+'] vs '+u+': جدول '+tb.act+' دقيق '+e.action+' فرق '+d.toFixed(4));if(d>=0.02)bad=cs+' vs '+u}}
+  R.push({g:'تركيب',n:'اعتماد القرار على تركيب اليد (11 حالة مفحوصة): '+(dif.length?dif.join(' ؛ '):'لا اختلاف'),ok:!bad&&dif.length>0,d:bad?'فرق كبير '+bad:dif.length?'':'لم يظهر أي اختلاف'})}
+ /* Split غير الآسات: تقريبي صراحةً + قياس أثر الأوراق المشتركة */
+ t('Split','EV لـSplit غير الآسات موسوم تقريبيًا، والآسات غير تقريبي',()=>{const a=strategy([K(8),K(8)],U(6),{exact:true}),b=strategy([K('A'),K('A')],U(6),{exact:true});return a.approx&&!b.approx||[a.approx,b.approx].join()});
+ for(const[r,u] of[['8','6'],['7','6']]){const c=[K(r),K(r)],a=mcEV(c,u,'SPLITP',full?2500000:300000,8,5),b=mcEV(c,u,'SPLITI',full?2500000:300000,8,6),d=a.m-b.m,se=Math.hypot(a.se,b.se);
+  R.push({g:'Split',n:'أثر الأوراق المشتركة '+r+','+r+' vs '+u+' (مونت كارلو، سياسة ثابتة بسيطة): مشترك−مستقل = '+d.toFixed(4)+' ± '+se.toFixed(4),ok:Math.abs(d)<0.02,d:Math.abs(d)<0.02?'':'أكبر من 0.02'})}
+ /* تدفق الجولة (تكميلي) */
+
+
+ t('سير الجولة','تبديل DOUBLE→HIT يلغي المضاعفة',()=>{seq('5','6','6');act('DOUBLE');act('HIT');add(K(2));return !S.hands[0].doubled&&S.hands[0].cards.length===3||'x'});
+ t('سير الجولة','DOUBLE مرفوض لـ3 أوراق',()=>{seq('2','3','6');add(K(5));return act('DOUBLE')===false&&!S.hands[0].doubled||'x'});
+ t('سير الجولة','UNDO يعيد الإجراء المعلّق وSTAND',()=>{seq('10','7','6');hist=[];const a=JSON.stringify(S);act('DOUBLE');undo();const b=JSON.stringify(S)===a;act('STAND');undo();return b&&JSON.stringify(S)===a||'x'});
+ t('سير الجولة','NEW ROUND يصفّر الإجراء المعلّق والطاولة (ويحفظ الأوراق في المقبرة)',()=>{seq('5','6','6');act('DOUBLE');newRound();return S.pending==='HIT'&&!S.dealer&&discardedCards.length===3||'x'});
+ /* ===== مونت كارلو موسّع: تقييم HIT بسياسة المحرك اللانهائي (تحقق من حساب EV لا من الأمثلية) ===== */
+ const polFor=u=>{const c=dealerDist(u).c,m={},memo={};return h=>{const tt=h.reduce((x,y)=>x+y,0),a=h.includes(1),k=tt*2+(a?1:0);
+  if(!(k in memo)){const v=a&&tt+10<=21?tt+10:tt;memo[k]=v<21&&hitEV(tt,a,c,m)>stC(v,c)}return memo[k]}};
+ for(const[cs,u] of[[['10','6'],'K'],[['10','2'],'3'],[['A','6'],'9'],[['5','4'],'2'],[['8','5'],'7'],[['10','6'],'A'],[['A','2'],'5'],[['7','5'],'4']])
+  t('مونت كارلو','HIT: EV اللانهائي = محاكاة بنفس سياسته (1000 مجموعة، 150k): '+cs+' vs '+u,()=>{const c=cs.map(r=>K(r)),r=mcEV(c,u,'HITPOL',150000,1000,31,polFor(val(u))),e=strategy(c,K(u),{exact:false}).ev.HIT;
+   return Math.abs(r.m-e)<=4.5*r.se+0.002||'MC='+r.m.toFixed(4)+'±'+r.se.toFixed(4)+' محرك='+e.toFixed(4)});
+ t('اتساق','المحركان يحترمان RULES.peekOnTen وdealerStandsSoft17 (دقيق 1000 مجموعة ≈ لانهائي)',()=>{const sv=[RULES.peekOnTen,RULES.dealerStandsSoft17];let res=true;
+  try{for(const[p,s2] of[[true,true],[false,false],[true,false]]){RULES.peekOnTen=p;RULES.dealerStandsSoft17=s2;resetCaches();
+   for(const[cs,u] of[[['10','6'],'K'],[['5','6'],'K'],[['A','7'],'6'],[['10','2'],'A'],[['8','8'],'K']]){const c=cs.map(r=>K(r)),a=strategy(c,K(u),{exact:true,decks:1000}).ev,b=strategy(c,K(u),{exact:false}).ev;
+    for(const k in b)if(!(k in a)||Math.abs(a[k]-b[k])>0.003)res='peek10='+p+' S17='+s2+' '+cs+' vs '+u+' '+k+' '+(a[k]||0).toFixed(4)+'/'+b[k].toFixed(4)}}}
+  finally{RULES.peekOnTen=sv[0];RULES.dealerStandsSoft17=sv[1];resetCaches()}return res});
+ if(full){let n=0,mz=0,bad='';const hs=[[['10','2'],'STAND'],[['10','5'],'STAND'],[['10','7'],'STAND'],[['10','9'],'STAND'],[['K','K'],'STAND'],[['A','7'],'STAND'],[['5','4'],'DOUBLE'],[['5','5'],'DOUBLE'],[['5','6'],'DOUBLE'],[['A','6'],'DOUBLE'],[['A','7'],'DOUBLE'],[['A','5'],'DOUBLE']];
+  for(const[cs,m] of hs)for(const u of['2','3','4','5','6','7','8','9','K','A']){const c=cs.map(x=>K(x)),r=mcEV(c,u,m,100000,8,1000+n),e=strategy(c,K(u),{exact:true}).ev[m];n++;const z=Math.abs(r.m-e)/r.se;mz=Math.max(mz,z);if(z>4.5&&Math.abs(r.m-e)>0.002)bad+=cs+' '+m+' vs '+u+' MC='+r.m.toFixed(4)+'±'+r.se.toFixed(4)+' محرك='+e.toFixed(4)+' ؛ '}
+  let sa=0;for(const u of['2','3','4','5','6','7','8','9','K','A']){const c=[K('A'),K('A')],r=mcEV(c,u,'SPLITA',150000,8,2000+sa),e=strategy(c,K(u),{exact:true}).ev.SPLIT;sa++;const z=Math.abs(r.m-e)/r.se;mz=Math.max(mz,z);n++;if(z>4.5&&Math.abs(r.m-e)>0.002)bad+='A,A vs '+u+' MC='+r.m.toFixed(4)+' محرك='+e.toFixed(4)+' ؛ '}
+  R.push({g:'مونت كارلو',n:'شبكة موسّعة (حذاء 8): '+n+' حالة STAND/DOUBLE/SPLIT-Aces × 10 أوراق موزّع، 100k-150k عينة؛ أقصى |z| = '+mz.toFixed(2),ok:!bad,d:bad})}
+ else R.push({g:'مونت كارلو',n:'الشبكة الموسّعة (110 حالة): لم تُنفَّذ في التشغيل السريع',ok:false,skip:true,d:''});
+ /* ===== تدقيق نهائي ===== */
+ t('EV دقيق','Double مقابل A: exactEV = مرجع مستقل بترتيب تعداد معكوس (يكشف خطأ شرط الفحص على سحب اللاعب)',()=>{for(const cs of[['5','6'],['4','5'],['A','3'],['10','2'],['6','3'],['9','2'],['10','6'],['9','7'],['8','4'],['A','6']]){const c=cs.map(r=>K(r)),a=strategy(c,K('A'),{exact:true}).ev.DOUBLE,b=refDoubleVsA(c);if(Math.abs(a-b)>1e-9)return cs+': محرك '+a.toFixed(6)+' / مرجع '+b.toFixed(6)}return true});
+ t('جدول','الجدول لا يتجاوز القواعد: كل شكل يد (2 و3 أوراق، يد بعد Split) × 10 أوراق موزّع',()=>{const rk=[1,2,3,4,5,6,7,8,9,10],R3=v=>v===1?'A':String(v);
+  for(const u of ups){const uc=U(u);
+   for(const a of rk)for(const b of rk){const c=[K(R3(a)),K(R3(b))],i=info(c);
+    for(const[o,two] of[[{},true],[{fromSplit:true,split:true},false]]){const act=tableAction(c,uc,o).act;
+     if(act==='SPLIT'&&!(two&&a===b))return 'SPLIT غير قانوني '+a+','+b+' vs '+u;if(act==='DOUBLE'&&(!two||i.v===21))return 'DOUBLE غير قانوني '+a+','+b+' vs '+u;if(i.v===21&&act!=='STAND')return '21 بلا STAND'}}
+   for(const a of rk)for(const b of rk)for(const d of rk){const c=[K(R3(a)),K(R3(b)),K(R3(d))],i=info(c);if(i.bust)continue;const act=tableAction(c,uc).act;
+    if(act==='SPLIT'||act==='DOUBLE')return 'ثلاث أوراق: '+act;if(i.v>=21&&act!=='STAND')return '≥21: '+act}}return true});
+ t('Cache','المفاتيح تفرّق fromSplit/split/known/النموذج، والمخزّن = المحسوب من جديد',()=>{const c=[K(8),K(8)],u=K(6),a=strategy(c,u,{exact:false}),b=strategy(c,u,{exact:false,fromSplit:true,split:true}),d=strategy(c,u,{exact:true}),e=strategy(c,u,{exact:true,known:[K(8),K(8),K(6),K('K'),K('K'),K('K')]});
+  if(!('SPLIT' in a.ev)||'SPLIT' in b.ev||'DOUBLE' in b.ev)return 'fromSplit/split لم يُميَّزا';if(a.model===d.model)return 'النموذج لم يُميَّز';if(Math.abs(d.ev.STAND-e.ev.STAND)<1e-6)return 'known لم يُميَّز';
+  const j1=JSON.stringify(d.ev);resetCaches();return j1===JSON.stringify(strategy(c,u,{exact:true}).ev)||'المخزّن ≠ المحسوب'});
+ t('الحفظ','حالة تالفة أو مزوّرة لا تُستعاد ولا تُتلف الحالة الحالية',()=>{seq('10','6','6');const b=JSON.stringify(S);
+  for(const v of['{','{"S":{"hands":[]}}','{"S":{"hands":[{"cards":[{"r":"Z","s":"♠"}]}],"dealer":null,"active":0}}','{"S":{"hands":[{"cards":[]}],"dealer":null,"active":5}}']){if(restore({getItem:()=>v})!==false||JSON.stringify(S)!==b)return 'قُبلت: '+v}return true});
+ t('سير الجولة','add() يرفض بطاقة غير صالحة، وact() يرفض إجراءً مجهولًا، دون تغيير الحالة',()=>{seq('10','6','6');const b=JSON.stringify(S),r=[add(K('Z')),add({r:'5',s:'x'}),add(null),act('FOO'),act()];return r.every(x=>x===false)&&JSON.stringify(S)===b||String(r)});
+ /* ===== مرجع Bayes المستقل: Hit/Stand/Double ===== */
+ {const fastL=[[['10','6'],'A'],[['10','2'],'A'],[['5','4'],'A'],[['A','6'],'A'],[['A','7'],'A'],[['10','7'],'A'],[['10','6'],'K']],extra=[[['9','3'],'A'],[['8','5'],'A'],[['A','2'],'A'],[['A','5'],'A'],[['10','2'],'3']],L=full?fastL.concat(extra):fastL;
+  let mx=0,bad='';const txt=[];for(const[cs,u] of L){const c=cs.map(r=>K(r)),e=strategy(c,K(u),{exact:true}).ev,r=refBayes(c,u);
+   for(const k in r){if(!(k in e)){bad='خيار ناقص '+k;break}mx=Math.max(mx,Math.abs(e[k]-r[k]))}txt.push('['+cs+'] vs '+u+' HIT '+e.HIT.toFixed(5)+'/'+r.HIT.toFixed(5))}
+  R.push({g:'مرجع Bayes',n:'exactEV (محرك/مرجع) على '+L.length+' يدًا Hard/Soft/قابلة للبَست مقابل A وK و3، أقصى فرق مطلق '+mx.toExponential(1)+' للخيارات STAND/HIT/DOUBLE: '+txt.join(' ؛ '),ok:!bad&&mx<1e-9,d:bad||(mx<1e-9?'':'فرق ≥ 1e-9')})}
+ {const hv=[[['10','6'],'A',777],[['10','2'],'A',778]],Nm=full?8000000:400000;let bad='';const txt=[];
+  for(const[cs,u,sd] of hv){const c=cs.map(r=>K(r)),a=mcEV(c,u,'HITPOL',Nm,8,sd,h=>{const tt=h.reduce((x,y)=>x+y,0);return(h.includes(1)&&tt+10<=21?tt+10:tt)<17}),
+    b=refBayes(c,u,{pol:(s,x)=>(x&&s+10<=21?s+10:s)<17}).HIT,z=(a.m-b)/a.se;txt.push('['+cs+'] MC '+a.m.toFixed(5)+'±'+a.se.toFixed(5)+' مرجع '+b.toFixed(5)+' z='+z.toFixed(2));if(Math.abs(z)>4.5)bad='|z|>4.5'}
+  R.push({g:'مرجع Bayes',n:'مرجع Bayes مقابل مونت كارلو (حذاء 8 حقيقي، فحص A بالرفض)، سياسة ثابتة «اسحب حتى 17»، '+Nm+' عينة'+(full?'':' (عدد صغير في التشغيل السريع)')+': '+txt.join(' ؛ '),ok:!bad,d:bad})}
+ if(full){const out=[];let bad='';for(const[cs,u] of[[['A','2'],'5'],[['A','4'],'4']]){if(bad)break;const c=cs.map(r=>K(r)),inf=strategy(c,K(u),{exact:false}).ev,ex=strategy(c,K(u),{exact:true}).ev,r8=refBayes(c,u),rk=refBayes(c,u,{decks:2000});
+   for(const k of['STAND','HIT','DOUBLE']){if(Math.abs(ex[k]-r8[k])>1e-9)bad=cs+' دقيق≠مرجع '+k;if(Math.abs(inf[k]-rk[k])>5e-4)bad=cs+' لانهائي≠مرجع(2000) '+k}
+   if(!(inf.HIT-inf.DOUBLE>0&&r8.DOUBLE-r8.HIT>-1e-4))bad=cs+' إشارة الفرق تغيّرت';
+   out.push('['+cs+'] vs '+u+' HIT−DOUBLE: '+[8,16,64,2000].map(d=>{const r=d===8?r8:d===2000?rk:refBayes(c,u,{decks:d});return d+' مجموعة='+(r.HIT-r.DOUBLE).toFixed(5)}).join(' ، ')+' ، المحرك اللانهائي='+(inf.HIT-inf.DOUBLE).toFixed(5))}
+  R.push({g:'حسم الخليتين',n:'Soft A,2 مقابل 5 وA,4 مقابل 4: مرجع Bayes (دقيق عند 8 مجموعات، ≈لانهائي عند 2000) — '+out.join(' ؛ '),ok:!bad,d:bad})}
+ else R.push({g:'حسم الخليتين',n:'مسح عدد المجموعات للخليتين المختلفتين: لم يُنفَّذ في التشغيل السريع (استخدم الاختبار الشامل)',ok:false,skip:true,d:''});
+ /* ===== الحذاء التراكمي: مقبرة الأوراق، دور الموزّع، الأفضلية ===== */
+ t('الحذاء التراكمي','دور الموزّع: بعد انتهاء اللاعب تُقبل أوراق الموزّع حتى يكتمل (≥17/Bust) دون المساس بيد اللاعب',()=>{seq('10','7','6');act('STAND');const hb=JSON.stringify(S.hands);
+  if(!roundOver()||dealerDone())return 'حالة البداية';add(K(10));if(dealerDone()||S.dealerExtra.length!==1)return 'بعد المخفية (16)';add(K(5));if(!dealerDone())return '21 لم يُغلق';
+  const b=JSON.stringify(S),r=add(K(2));return r===false&&JSON.stringify(S)===b&&JSON.stringify(S.hands)===hb&&S.dealerExtra.length===2||'x'});
+ t('الحذاء التراكمي','الموزّع: Bust وSoft 17 (S17) وBlackjack يُغلقون دوره، و16 لا',()=>{seq('10','7','6');act('STAND');add(K(10));add(K('K'));const a=dealerDone();
+  seq('10','7','A');act('STAND');add(K(6));const b=dealerDone();seq('10','7','A');act('STAND');add(K('K'));const c=dealerDone();seq('10','7','6');act('STAND');add(K(10));const d=dealerDone();return a&&b&&c&&!d||[a,b,c,d].join()});
+ t('الحذاء التراكمي','NEW ROUND ينقل كل أوراق الطاولة (لاعب + موزّع كامل) إلى المقبرة ويصفّر الطاولة؛ UNDO يعيدها',()=>{seq('10','7','6');act('STAND');add(K(10));const before=JSON.stringify(S),tc=tableCards().map(c=>c.r).join();newRound();
+  const ok1=discardedCards.map(c=>c.r).join()===tc&&discardedCards.length===4&&!S.dealer&&S.dealerExtra.length===0&&S.hands[0].cards.length===0;undo();return ok1&&discardedCards.length===0&&JSON.stringify(S)===before||'x'});
+ t('الحذاء التراكمي','SHUFFLE يمسح المقبرة ويصفّر الطاولة؛ UNDO يعيدهما',()=>{seq('10','7','6');act('STAND');newRound();add(K(9));const before=JSON.stringify([S,cstr(discardedCards)]);shuffleShoe();
+  const ok1=discardedCards.length===0&&!S.dealer&&S.hands[0].cards.length===0;undo();return ok1&&JSON.stringify([S,cstr(discardedCards)])===before&&discardedCards.length===3||'x'});
+ t('الحذاء التراكمي','known() وcanAdd() يشملان المقبرة (8 نسخ لكل ورقة في الحذاء كله)',()=>{CFG.exact=true;S=fresh();discardedCards=Array(8).fill(K('A','♠'));const a=known().length===8,b=canAdd(K('A','♠')),c=canAdd(K('A','♥'));CFG.exact=false;discardedCards=[];return a&&!b&&c||[a,b,c].join()});
+ t('الحذاء التراكمي','المحرك الدقيق يخصم المقبرة + الطاولة: يطابق مرجع Bayes المستقل (1e-9) ويتغير عن الحذاء بلا مقبرة',()=>{const D=['10','10','10','K','K','Q','J','5','6','7','A','A','9','9','8'].map(r=>K(r));
+  for(const[cs,u] of[[['10','6'],'K'],[['5','6'],'A'],[['A','7'],'6'],[['10','2'],'10']]){seq(...cs,u);discardedCards=D.slice();const c=S.hands[0].cards,e=strategy(c,S.dealer,{exact:true,known:known()}).ev,r=refBayes(c,u,{extra:D});
+   for(const k in r)if(Math.abs(e[k]-r[k])>1e-9)return cs+' vs '+u+' '+k+': '+e[k].toFixed(6)+' / '+r[k].toFixed(6)}
+  const e0=strategy([K(10),K(6)],K('K'),{exact:true}).ev.HIT,e1=strategy([K(10),K(6)],K('K'),{exact:true,known:[K(10),K(6),K('K')].concat(D)}).ev.HIT;discardedCards=[];return Math.abs(e0-e1)>1e-4||'المقبرة بلا أثر'});
+ t('الحذاء التراكمي','الحفظ والاسترجاع يشملان المقبرة وأوراق الموزّع؛ مقبرة تالفة تُرفض كاملة دون تغيير الحالة',()=>{const m={d:{},setItem(k,v){this.d[k]=v},getItem(k){return this.d[k]||null}};seq('10','7','6');act('STAND');add(K(10));discardedCards=[K(2),K('K','♥'),K(9,'♦')];
+  const a=JSON.stringify([S,cstr(discardedCards)]);persist(m);S=fresh();discardedCards=[];if(!restore(m)||JSON.stringify([S,cstr(discardedCards)])!==a)return 'لم تُستعد';const b=a;
+  for(const bad of['Z♠','10♠,5','2♠,2♠,2♠,2♠,2♠,2♠,2♠,2♠,2♠']){const j=JSON.parse(m.d[KEY]);j.D=bad;m.d[KEY]=JSON.stringify(j);if(restore(m)!==false||JSON.stringify([S,cstr(discardedCards)])!==b)return 'قُبلت: '+bad}return true});
+ t('الأفضلية','قيم محسوبة يدويًا: حذاء كله 10 ⇒ 0 ، كله 5 ⇒ −2 (Double بالجدول يخسر رهانين)',()=>{const a=playerEdge([0,0,0,0,0,0,0,0,0,0,128]),b=playerEdge([0,0,0,0,128,0,0,0,0,0,0].map((x,i)=>i===5?128:0));return(Math.abs(a)<1e-12&&Math.abs(b+2)<1e-12)||a+' / '+b});
+ t('الأفضلية','اتجاه الأفضلية: إزالة الأوراق المنخفضة ترفعها وإزالة العشرات تخفضها',()=>{const full=FULLSHOE(),base=playerEdge(full),lo=full.slice(),hi=full.slice();for(const v of[2,3,4,5,6])lo[v]-=16;hi[10]-=40;const eLo=playerEdge(lo),eHi=playerEdge(hi);return(eLo>base&&eHi<base&&Number.isFinite(base))||[base,eLo,eHi].join()});
+ t('الأفضلية','playerEdge بلا أثر جانبي: P والكاش كما كانا',()=>{const p0=P.join(),r0=JSON.stringify(strategy([K(10),K(6)],K('K'),{exact:false}).ev);playerEdge(FULLSHOE());playerEdge([0,0,0,0,0,128,0,0,0,0,0]);return P.join()===p0&&JSON.stringify(strategy([K(10),K(6)],K('K'),{exact:false}).ev)===r0||'x'});
+ {const t0=performance.now(),b=playerEdge(FULLSHOE()),ms=performance.now()-t0;R.push({g:'الأفضلية',n:'الأفضلية الأساسية لحذاء كامل (حذاء لانهائي بتركيبة ثابتة، باتباع الجدول): '+(b*100).toFixed(3)+'% — الزمن '+ms.toFixed(0)+'ms — معقولية فقط، غير متحقَّق منها بمرجع خارجي',ok:b<0&&b>-0.03,d:'خارج النطاق المعقول'})}
+ t('حرق الأوراق','وضع الحرق يسمح بإرسال الأوراق للمقبرة مباشرة، مع عمل التراجع بشكل صحيح',()=>{seq('5');burnMode=true;burnCard(K('10'));burnCard(K('6'));
+  const ok1=discardedCards.length===2&&discardedCards[1].r==='6'&&S.hands[0].cards.length===1&&S.hands[0].cards[0].r==='5';
+  undo();const ok2=discardedCards.length===1&&discardedCards[0].r==='10';undo();return ok1&&ok2&&discardedCards.length===0||'x'});
+ /* قرارات مفتاحية معروفة + قانونية */
+ t('استراتيجية','Hard: 17+ STAND، ≤7 HIT، 11 DOUBLE مقابل 2-9، 16 vs 6 STAND',()=>{for(let h=5;h<=19;h++){const a=Math.max(2,h-10);for(const u of ups){const uu=u===1?11:u,x=strategy([K(a),K(h-a)],U(u)).action;
+   if(h>=17&&x!=='STAND'||h<=7&&x!=='HIT'||h===11&&uu<=9&&x!=='DOUBLE'||h===16&&u===6&&x!=='STAND')return 'H'+h+' vs '+u+' = '+x}}return true});
+ t('استراتيجية','Pairs: A,A وSplit دائمًا، 10,10/5,5/4,4 لا Split، 5,5 يضاعف مقابل 2-9',()=>{for(const u of ups){const uu=u===1?11:u;
+  if(strategy([K('A'),K('A')],U(u)).action!=='SPLIT')return 'AA vs '+u;
+  for(const r of['10','5','4'])if(strategy([K(r),K(r)],U(u)).action==='SPLIT')return r+r+' vs '+u;
+  if(uu<=9&&strategy([K(5),K(5)],U(u)).action!=='DOUBLE')return '55 vs '+u}return true});
+ t('استراتيجية','Soft: A,9 STAND دائمًا، A,7 HIT مقابل 9/10/A',()=>{for(const u of ups){if(strategy([K('A'),K(9)],U(u)).action!=='STAND')return 'A9 vs '+u}
+  return[9,10,1].every(u=>strategy([K('A'),K(7)],U(u)).action==='HIT')||'A7'});
+ t('استراتيجية','لا Double لـ3 أوراق/21/بعد Split، ولا Split بعد Split',()=>{const a=strategy([K(3),K(3),K(5)],U(6)).ev,b=strategy([K(5),K(6)],U(6),{fromSplit:true}).ev,c=strategy([K('A'),K('K')],U(6)).ev,d=strategy([K(8),K(8)],U(6),{fromSplit:true,split:true}).ev;
+  return !('DOUBLE' in a)&&!('DOUBLE' in b)&&!('SPLIT' in b)&&!('DOUBLE' in c)&&!('SPLIT' in d)||'x'});
+ /* سير الجولة */
+ t('سير الجولة','إدخال بالتسلسل + قرار مباشر',()=>{seq('10','6','10');return eq(decide().action,'HIT')});
+ t('سير الجولة','STAND يغلق اليد وينهي الجولة',()=>{seq('10','7','6');if(decide().action!=='STAND')return 'لا STAND';act('STAND');return S.hands[0].stood&&roundOver()&&S.hands[0].cards.length===2||'x'});
+ t('سير الجولة','ورقة بعد توصية STAND تُسجَّل HIT صراحةً (ليست Stand)',()=>{seq('10','7','6');add(K(2));return S.hands[0].cards.length===3&&!S.hands[0].stood&&!S.hands[0].doubled||'x'});
+ t('سير الجولة','DOUBLE لا يُسجَّل بالضغط على ورقة فقط',()=>{seq('5','6','6');if(decide().action!=='DOUBLE')return 'لا DOUBLE';add(K(2));return !S.hands[0].doubled&&S.hands[0].cards.length===3||'x'});
+ t('سير الجولة','DOUBLE بالزر ثم ورقة: تُغلق اليد',()=>{seq('5','6','6');act('DOUBLE');if(S.pending!=='DOUBLE')return 'pending';add(K(9));return S.hands[0].doubled&&roundOver()&&S.pending==='HIT'||'x'});
+ t('سير الجولة','SPLIT لا يُنفَّذ بالضغط على ورقة فقط',()=>{seq('8','8','6');if(decide().action!=='SPLIT')return 'لا SPLIT';add(K(3));return !S.split&&S.hands.length===1||'x'});
+ t('سير الجولة','SPLIT بالزر: يدان بورقة واحدة وتنتظر الثانية',()=>{seq('8','8','6');act('SPLIT');return S.hands.length===2&&S.hands.every(h=>h.cards.length===1)&&S.active===0&&decide().msg.includes('الثانية')||'x'});
+
+
+ t('سير الجولة','آسات مقسّمة: يد 1 تُغلق بورقة، النشطة تنتقل فورًا لليد 2، ثم تنتهي الجولة',()=>{seq('A','A','6');act('SPLIT');add(K(5));
+  if(S.hands[0].cards.length!==2||!isDone(S.hands[0])||S.active!==1)return 'اليد 1';add(K('10'));return S.hands[1].cards.length===2&&roundOver()&&!isNatural(S.hands[1].cards,true)&&!legal(S.hands[1]).length||'x'});
+ /* ===== Split: ورقة لكل يد قبل أي قرار (قاعدة الطاولة) ===== */
+ const dealSplit=(...cs)=>{seq(...cs);act('SPLIT')};
+ t('Split','لا قرار على أي يد قبل توزيع الورقة الثانية لكلتيهما',()=>{dealSplit('8','8','6');if(legal(S.hands[0]).length||act('STAND')||act('HIT'))return 'قرار قبل التوزيع';
+  add(K(3));if(S.active!==1||legal(S.hands[0]).length||act('STAND')||act('HIT')||!decide().msg.includes('الثانية'))return 'قرار على اليد 1 قبل ورقة اليد 2';
+  add(K(4));const L=legal(S.hands[0]);return S.active===0&&L.includes('STAND')&&L.includes('HIT')&&!L.includes('DOUBLE')&&!L.includes('SPLIT')||'بعد التوزيع: '+L.join()+' نشطة '+S.active});
+ t('Split','STAND على اليد 1 يغلقها وينقل النشاط لليد 2 (جاهزة بورقتها)',()=>{dealSplit('8','8','6');add(K(3));add(K(4));act('STAND');return S.hands[0].stood&&S.active===1&&S.hands[1].cards.length===2&&!roundOver()||'x'});
+ t('Split','إكمال اليد 2: HIT ثم STAND ينهي الجولة واليد 1 لا تتغير',()=>{dealSplit('8','8','6');add(K(3));add(K(4));act('STAND');add(K(2));const h1=S.hands[0].cards.length;act('STAND');
+  return roundOver()&&h1===2&&S.hands[0].cards.length===2&&S.hands[1].cards.length===3&&S.hands[1].cards.map(c=>c.r).join()==='8,4,2'||'x'});
+ t('Split','لا Double/Split/Resplit بعد Split، ولا اختلاط أوراق',()=>{dealSplit('8','8','6');add(K(8));add(K(5));const L=legal(S.hands[0]);
+  return !L.includes('DOUBLE')&&!L.includes('SPLIT')&&S.hands[0].cards.map(c=>c.r).join()==='8,8'&&S.hands[1].cards.map(c=>c.r).join()==='8,5'||L.join()});
+ t('Split','UNDO يتراجع خطوة بخطوة عبر كل انتقالات Split',()=>{seq('8','8','6');hist=[];const sn=[JSON.stringify(S)],push=()=>sn.push(JSON.stringify(S));
+  act('SPLIT');push();add(K(3));push();add(K(4));push();act('STAND');push();add(K(2));push();act('STAND');push();
+  for(let i=sn.length-2;i>=0;i--){undo();if(JSON.stringify(S)!==sn[i])return 'فشل عند الخطوة '+i}return undo()===false||'x'});
+ t('Split','حفظ واستعادة في منتصف Split ثم المتابعة',()=>{const m={d:{},setItem(k,v){this.d[k]=v},getItem(k){return this.d[k]||null}};dealSplit('8','8','6');add(K(3));persist(m);S=fresh();hist=[];restore(m);CFG.exact=false;
+  add(K(4));return S.hands.length===2&&S.hands[1].cards.map(c=>c.r).join()==='8,4'&&S.active===0||'x'});
+ t('سير الجولة','DOUBLE: ورقة واحدة فقط ثم الإغلاق (الورقة التالية للموزّع لا لليد)',()=>{seq('5','6','6');act('DOUBLE');add(K(9));const b=JSON.stringify(S.hands);add(K(2));return S.hands[0].doubled&&roundOver()&&JSON.stringify(S.hands)===b&&S.hands[0].cards.length===3&&S.dealerExtra.length===1||'x'});
+ t('سير الجولة','انتقالات غير قانونية مرفوضة دون تغيير الحالة',()=>{seq('10','7');const r0=act('STAND');seq('10','7','6');const b=JSON.stringify(S),a=act('SPLIT');add(K(2));const c=act('DOUBLE'),d=JSON.stringify(S);act('STAND');const e=act('HIT');
+  return !r0&&!a&&!c&&!e&&b!==d||[r0,a,c,e].join()});
+ t('سير الجولة','NEW ROUND',()=>{seq('10','6','10');newRound();return S.dealer===null&&S.hands.length===1&&!S.hands[0].cards.length&&!S.split||'x'});
+ t('حفظ','localStorage',()=>{if(typeof localStorage==='undefined')return 'غير متاح في هذه البيئة (لم يُختبر)';localStorage.setItem('bjpro.t','1');const ok=localStorage.getItem('bjpro.t')==='1';localStorage.removeItem('bjpro.t');return ok||'فشل'});
+ t('أداء','زمن القرار',()=>{const c=[K(7),K(9)],t0=performance.now();for(let i=0;i<1000;i++)strategy(c,U(10));const ms=(performance.now()-t0)/1000;R.push({g:'أداء',n:'المقاس '+ms.toFixed(4)+' ms/قرار دافئ',ok:ms<1,d:''});return true});
+ [S,hist,after]=keep;CFG.exact=kc;discardedCards=kd;burnMode=kb;return R}
+</script>
+
+<script id="ui">
+const $=id=>document.getElementById(id);let storeOK=true,restored=false;
+function save(){try{persist(localStorage)}catch(e){storeOK=false}}
+function load(){try{if(restore(localStorage)&&(S.dealer||S.hands[0].cards.length))restored=true}catch(e){storeOK=false}}
+const ch=c=>c?`<span class="pc ${'♥♦'.includes(c.s)?'red':''}"><b>${c.r}</b>${c.s}</span>`:'';
+function banner(){const b=$('ban'),m=[];if(!storeOK)m.push('⚠ تعذّر الحفظ المحلي في هذا المتصفح؛ لن تُسترجع الجولة.');
+ if(restored)m.push('تم استرجاع جولة سابقة — تحقق من الأوراق قبل الاعتماد على القرار.');b.style.display=m.length?'block':'none';b.innerHTML=m.join('<br>')}
+let _ek='',_ev=NaN,_base=null;
+function edgeLine(){try{const sh=remainingShoe(),k=sh.join();if(k!==_ek){_ek=k;_ev=playerEdge(sh);if(_base===null)_base=playerEdge(FULLSHOE())}
+ const f=x=>(x>=0?'+':'')+(x*100).toFixed(2)+'%';return 'الأفضلية الحالية: '+f(_ev)+' (حذاء كامل: '+f(_base)+') · المتبقي '+sh.slice(1).reduce((a,b)=>a+b,0)+'/'+RULES.decks*52+' ورقة · تقدير تقريبي'}catch(e){return ''}}
+function render(){const d=decide();
+ $('dealer').innerHTML=S.dealer?dealerHand().map(ch).join(''):'<span class="hint">—</span>';
+ $('hands').innerHTML=S.hands.map((h,i)=>{const n=info(h.cards);
+  return `<div class="hand ${i===S.active&&S.hands.length>1?'act':''}" style="order:${i===S.active?0:1}"><div class="lbl">${S.hands.length>1?'اليد '+(i+1)+' · ':''}${h.cards.length?(n.soft?'Soft ':'Hard ')+n.v:''}${h.doubled?' · Double':''}</div><div class="cards">${h.cards.map(ch).join('')||'<span class="hint">اختر الورقة</span>'}</div></div>`}).join('');
+ const a=d.action;$('dec').className='dec '+(a&&a!=='ROUND OVER'?a:'NONE');$('dec').textContent=a||'—';
+ $('sub').textContent=d.msg||d.sub||'';
+ 
+ $('burnBtn').className = burnMode ? 'on' : '';
+ $('burnBtn').textContent = '🔥 حرق أوراق: ' + (burnMode ? 'ON' : 'OFF');
+
+ document.querySelectorAll('.k').forEach(k=>k.disabled=(!burnMode&&roundOver()&&dealerDone())||!canAdd(K(k.dataset.r,k.dataset.s)));
+ $('edge').textContent=edgeLine();$('model').textContent=d.note||'';$('exact').checked=CFG.exact;
+ const h=S.hands[S.active],L=S.dealer&&!roundOver()?legal(h):[];
+ $('acts').innerHTML=['STAND','HIT','DOUBLE','SPLIT'].map(x=>`<button data-a="${x}" class="${x===S.pending&&L.includes(x)&&x!=='STAND'?'on':''} ${x===a?'rec':''}" ${L.includes(x)?'':'disabled'}>${x}</button>`).join('');
+ document.querySelectorAll('#acts button').forEach(b=>b.onclick=()=>{restored=false;act(b.dataset.a)});
+ 
+ if(burnMode){
+  $('pend').textContent = 'وضع الحرق مفعل: الأوراق المختارة ستُرسل مباشرة للمقبرة';
+  $('pend').style.color = '#ffab91';
+ } else {
+  $('pend').style.color = '';
+  $('pend').textContent = roundOver()?(dealerDone()?'انتهى دور الموزّع — اضغط NEW ROUND':'دور الموزّع: أدخل ورقته المخفية ثم أوراق سحبه (تُسجَّل في الحذاء)'):(h.cards.length<2&&S.split)?'الورقة تُسجَّل كورقة ثانية لليد '+(S.active+1):S.dealer?'الورقة التالية تُسجَّل كـ: '+S.pending:'';
+ }
+ banner()}
+after=()=>{save();render()};
+function build(){const pk=$('pk');for(const s of SUITS)for(const r of RANKS){const b=document.createElement('button');b.className='k'+('♥♦'.includes(s)?' red':'');
+ b.innerHTML=`<b>${r}</b>${s}`;b.dataset.r=r;b.dataset.s=s;b.onclick=()=>{restored=false;burnMode?burnCard(K(r,s)):add(K(r,s))};pk.appendChild(b)}}
+$('burnBtn').onclick=()=>{burnMode=!burnMode;render()};
+$('undo').onclick=()=>{restored=false;undo()||render()};
+$('shuf').onclick=()=>{if((discardedCards.length||tableCards().length)&&!confirm('مسح مقبرة الأوراق وبدء حذاء جديد؟'))return;restored=false;shuffleShoe()};
+$('newr').onclick=()=>{const inc=!roundOver()&&(S.dealer||S.hands.some(h=>h.cards.length));if(inc&&!confirm('إدخال غير مكتمل. بدء جولة جديدة؟'))return;restored=false;newRound()};
+$('exact').onchange=e=>{CFG.exact=e.target.checked;save();render()};
+$('sbtn').onclick=()=>{$('rules').textContent=JSON.stringify(RULES,null,1)+'\n\nخلايا الجدول المتأثرة بالقواعد:\n'+RULE_CELLS.map(x=>x[0]+' vs '+x[1]+' = '+x[2]+' — '+x[3]).join('\n');$('set').style.display='block'};
+$('sclose').onclick=()=>{$('set').style.display='none'};
+function uiChecks(){const R=[],kS=S,kH=hist,kA=after,kC=CFG.exact,kD=discardedCards,kB=burnMode;discardedCards=[];after=()=>{};CFG.exact=false;burnMode=false;
+ const chk=(n,f)=>{try{const r=f();R.push({g:'واجهة',n,ok:r===true,d:r===true?'':String(r)})}catch(e){R.push({g:'واجهة',n,ok:false,d:e.message})}};
+ const acts=()=>{const o={};($('acts').innerHTML.match(/<button[^>]*>/g)||[]).forEach(t=>{o[/data-a="(\w+)"/.exec(t)[1]]=!/disabled/.test(t)});return Object.keys(o).filter(k=>o[k]).sort().join()};
+ const sync=n=>{render();const h=S.hands[S.active],L=S.dealer&&!roundOver()?legal(h).slice().sort().join():'',d=decide();
+  if(acts()!==L)return n+': أزرار مفعّلة ['+acts()+'] ≠ القانوني ['+L+']';if($('dec').textContent!==(d.action||'—'))return n+': القرار المعروض '+$('dec').textContent+' ≠ '+(d.action||'—');
+  if(($('hands').innerHTML.match(/class="hand/g)||[]).length!==S.hands.length)return n+': عدد الأيدي المعروضة';
+  if([...document.querySelectorAll('.k')].some(k=>k.disabled!==((!burnMode&&roundOver()&&dealerDone())||!canAdd(K(k.dataset.r,k.dataset.s)))))return n+': تعطيل منتقي الأوراق';return true};
+ chk('جولة فارغة: الواجهة = الحالة',()=>{S=fresh();hist=[];return sync('فارغة')});
+ chk('8,8 مقابل 6',()=>{S=fresh();hist=[];['8','8','6'].forEach(r=>add(K(r)));return sync('8,8')});
+ chk('بعد SPLIT (انتظار الورقة الثانية): لا أزرار مفعّلة',()=>{act('SPLIT');const r=sync('split');return r===true&&acts()===''||r});
+ chk('بعد توزيع الورقتين: اليد النشطة مميّزة',()=>{add(K(3));add(K(4));const r=sync('dealt');return r===true&&S.active===0&&/class="hand act/.test($('hands').innerHTML)||r});
+ chk('بعد STAND على اليد 1: النشاط لليد 2',()=>{act('STAND');const r=sync('stand');return r===true&&S.active===1&&/class="hand act/.test($('hands').innerHTML)||r});
+ chk('نهاية الجولة: كل الأزرار معطّلة',()=>{act('STAND');const r=sync('over');return r===true&&acts()===''&&roundOver()||r});
+ chk('بعد UNDO',()=>{S=fresh();hist=[];['10','6','K'].forEach(r=>add(K(r)));add(K(2));undo();return sync('undo')});
+ chk('حفظ/استرجاع فعلي في تخزين الصفحة',()=>{S=fresh();hist=[];['8','8','6'].forEach(r=>add(K(r)));act('SPLIT');const a=JSON.stringify(S);persist(localStorage);S=fresh();hist=[];return(restore(localStorage)&&JSON.stringify(S)===a)||'الحالة المستعادة مختلفة'});
+ S=kS;hist=kH;after=kA;CFG.exact=kC;discardedCards=kD;burnMode=kB;try{persist(localStorage)}catch(e){}render();return R}
+function runAsync(full,cb){try{const w=new Worker(URL.createObjectURL(new Blob([$('engine').textContent+';onmessage=e=>postMessage(runTests(e.data));'],{type:'text/javascript'})));
+ w.onmessage=e=>{w.terminate();cb(e.data,'خيط منفصل')};w.onerror=()=>{w.terminate();cb(runTests(full),'الخيط الرئيسي (تعذّر Worker)')};w.postMessage(full)}catch(e){setTimeout(()=>cb(runTests(full),'الخيط الرئيسي'),0)}}
+const runUI=full=>{$('tres').textContent='جارٍ التشغيل في خيط منفصل'+(full?' — الاختبار الشامل قد يستغرق دقيقة إلى عدة دقائق على الهاتف':'')+'…';const t0=Date.now();
+ runAsync(full,(R,mode)=>{R=R.concat(uiChecks());const sk=R.filter(x=>x.skip).length,f=R.filter(x=>!x.ok&&!x.skip).length;
+ $('tres').innerHTML=`<p class="${f?'bad':'ok'}">نجح ${R.length-f-sk} · فشل ${f} · غير منفّذ ${sk} (من ${R.length}) · ${((Date.now()-t0)/1000).toFixed(1)}ث · ${mode}</p>`+R.map(x=>`<div class="t ${x.ok?'ok':x.skip?'':'bad'}">${x.ok?'✔':x.skip?'⏭':'✘'} [${x.g}] ${x.n} ${x.d}</div>`).join('');render()})};
+$('runt').onclick=()=>runUI(false);$('runfull').onclick=()=>runUI(true);
+/* ===== استقبال الأوراق المحروقة من سيرفر البايثون عبر الرابط: ?burned=10♠,K♥,5♦ =====
+   يستخدم cparse الموجودة في المحرك ويستبدل المقبرة بما يرسله السيرفر (السيرفر = مصدر الحقيقة للحذاء).
+   الاستبدال لا الدمج: حتى لا تتضاعف الأوراق عند كل إعادة فتح لنفس الرابط. لا يمسّ أي منطق حسابي. */
+function loadBurnedFromURL(){
+ try{
+  const p=new URLSearchParams(window.location.search);
+  if(!p.has('burned'))return false;
+  const byCard={},byRank={},list=[],add1=c=>{const k=c.r+c.s;byCard[k]=(byCard[k]||0)+1;byRank[c.r]=(byRank[c.r]||0)+1};
+  tableCards().forEach(add1);                                                  // أوراق الطاولة محسوبة ضمن حدود الحذاء (8 مجموعات)
+  cparse(p.get('burned')||'').forEach(c=>{
+   if(!validCard(c)){console.warn('burned: ورقة غير صالحة تم تجاهلها →',c.r+c.s);return}
+   if((byCard[c.r+c.s]||0)>=RULES.decks||(byRank[c.r]||0)>=RULES.decks*4){console.warn('burned: تجاوز عدد النسخ المسموح في الحذاء، تم تجاهل →',c.r+c.s);return}
+   add1(c);list.push(c)});
+  if(cstr(list)!==cstr(discardedCards)){snap();discardedCards=list}            // snap() ليمكن التراجع عن الاستيراد بزر UNDO كبقية العمليات
+  save();return true
+ }catch(e){console.warn('burned: تعذّر قراءة الرابط',e);return false}
+}
+build();load();loadBurnedFromURL();render();
+</script><script>
+  const tg = window.Telegram.WebApp;
+  tg.expand();
+  tg.ready();
+</script>
+</body></html>
